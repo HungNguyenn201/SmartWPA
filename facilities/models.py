@@ -35,13 +35,6 @@ class Investor(models.Model):
                 'expiry_date': expiry_date,
             }
         )
-        
-        if not created:
-            # Nếu license đã tồn tại, chỉ cập nhật key nếu chưa có
-            if not license_obj.key:
-                license_obj.key = license_key
-                license_obj.save()
-        
         return license_obj
         
     def save(self, *args, **kwargs):

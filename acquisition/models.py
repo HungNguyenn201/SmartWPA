@@ -39,6 +39,23 @@ class HISPoint(models.Model):
     created_at = models.DateTimeField(auto_now_add= True)
     updated_at = models.DateTimeField(auto_now= True)
 
+    def clean(self):
+        """Validation logic cho HISPoint"""
+        from django.core.exceptions import ValidationError
+        from django.utils.translation import gettext_lazy as _
+        
+        # Nếu point_type.level là 'turbine' thì phải có turbine
+        if self.point_type and self.point_type.level == 'turbine' and not self.turbine:
+            raise ValidationError(_('Turbine level point type requires a turbine'))
+        
+        # Nếu point_type.level là 'farm' thì không nên có turbine
+        if self.point_type and self.point_type.level == 'farm' and self.turbine:
+            raise ValidationError(_('Farm level point type should not have a turbine'))
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     class Meta:
         unique_together = [
             ['farm', 'point_type', 'turbine']

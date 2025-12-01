@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin,Group, Permission
 from django.utils.timezone import now
+from django.utils.translation import gettext_lazy as _
 from facilities.models import Farm, Investor
 from datetime import datetime
 # Create your models here.
@@ -48,10 +49,8 @@ class AccountManager(BaseUserManager):
         try:
             investor_obj = Investor.objects.get(email=email)
             # Kiểm tra nếu investor đã tồn tại nhưng chưa có License thì tạo
-            try:
-                investor_obj.license_account
-            except:
-                investor_obj.generate_license()
+            # generate_license() sẽ tự kiểm tra và tạo license nếu chưa có
+            investor_obj.generate_license()
         except Investor.DoesNotExist:
             investor_obj = Investor.objects.create(
                 name=username,
@@ -97,6 +96,20 @@ class Account(AbstractBaseUser, PermissionsMixin):
     
     objects = AccountManager()
     
+    def clean(self):
+        """Validation logic cho Account"""
+        from django.core.exceptions import ValidationError   
+        # Nếu role là investor thì phải có investor_profile
+        if self.role == 'investor' and not self.investor_profile:
+            raise ValidationError(_('Investor account must have an investor_profile')) 
+        # Nếu role là farm_admin hoặc staff thì phải có farm
+        if self.role in ['farm_admin', 'staff'] and not self.farm:
+            raise ValidationError(_('Farm Admin and Staff accounts must have a farm'))
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
         return f"{self.username} ({self.role})"
     def has_perm(self, perm, obj=None):
@@ -117,4 +130,4 @@ class License(models.Model):
         if self.is_permanent:
             return True
         return self.expiry_date and self.expiry_date > datetime.now()
-# Create your models here.
+
