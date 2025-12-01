@@ -1,127 +1,18 @@
+"""Farm management views"""
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.pagination import PageNumberPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from facilities.models import Farm, Investor
 from permissions.views import CanManageFarm, CanViewFarm
 from django.db import IntegrityError
 from django.db import transaction
+from api_gateway.management.farms.validators import validate_farm_data
+from api_gateway.management.farms.helpers import get_farm_serialized_data
 import logging
-import re
 
-# Cấu hình logging
 logger = logging.getLogger(__name__)
-
-# Custom pagination class
-class FarmPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-# Custom exception class
-class FarmValidationError(Exception):
-    pass
-
-# -------------------------- HELPER FUNCTIONS ------------------------
-def validate_farm_name(name, exclude_farm_id=None):
-    """Validate farm name"""
-    if not name:
-        return {"valid": False, "error": "Farm name is required", "code": "EMPTY_NAME"}
-    if len(name) < 3:
-        return {"valid": False, "error": "Name must be at least 3 characters long", "code": "INVALID_NAME_LENGTH"}
-    if len(name) > 100:
-        return {"valid": False, "error": "Name is too long (max 100 characters)", "code": "INVALID_NAME_LENGTH"}
-    if not re.match(r'^[a-zA-Z0-9_ ]+$', name):
-        return {"valid": False, "error": "Name contains invalid characters", "code": "INVALID_NAME_FORMAT"}
-    query = Farm.objects.filter(name__iexact=name)
-    if exclude_farm_id:
-        query = query.exclude(id=exclude_farm_id)
-    if query.exists():
-        return {"valid": False, "error": "Farm name already exists", "code": "NAME_EXISTS"}
-    return {"valid": True}
-
-def validate_capacity(capacity):
-    """Validate capacity"""
-    if capacity is None:
-        return {"valid": True}
-    try:
-        capacity = float(capacity)
-        if capacity <= 0:
-            return {"valid": False, "error": "Capacity must be a positive number", "code": "INVALID_CAPACITY"}
-        if capacity > 1000:  # Giả sử capacity tối đa là 1000 MW
-            return {"valid": False, "error": "Capacity exceeds maximum allowed value (1000 MW)", "code": "CAPACITY_EXCEEDED"}
-    except (TypeError, ValueError):
-        return {"valid": False, "error": "Invalid capacity value", "code": "INVALID_CAPACITY"}
-    return {"valid": True}
-
-def validate_coordinate(value, coord_type="latitude"):
-    """Validate latitude or longitude"""
-    if value is None:
-        return {"valid": True}
-    try:
-        value = float(value)
-        if coord_type == "latitude":
-            if value < -90 or value > 90:
-                return {"valid": False, "error": "Latitude must be between -90 and 90", "code": "INVALID_LATITUDE"}
-        elif coord_type == "longitude":
-            if value < -180 or value > 180:
-                return {"valid": False, "error": "Longitude must be between -180 and 180", "code": "INVALID_LONGITUDE"}
-    except (TypeError, ValueError):
-        return {"valid": False, "error": f"Invalid {coord_type} value", "code": f"INVALID_{coord_type.upper()}"}
-    return {"valid": True}
-
-def validate_farm_data(name=None, capacity=None, latitude=None, longitude=None, exclude_farm_id=None):
-    """Validate tất cả farm data"""
-    errors = []
-    if name is not None:
-        result = validate_farm_name(name, exclude_farm_id)
-        if not result["valid"]:
-            errors.append(result)
-    if capacity is not None:
-        result = validate_capacity(capacity)
-        if not result["valid"]:
-            errors.append(result)
-    if latitude is not None:
-        result = validate_coordinate(latitude, "latitude")
-        if not result["valid"]:
-            errors.append(result)
-    if longitude is not None:
-        result = validate_coordinate(longitude, "longitude")
-        if not result["valid"]:
-            errors.append(result)
-    return errors
-
-def create_or_get_investor(email, username, is_active=True):
-    """Tạo hoặc lấy Investor object và đảm bảo có License"""
-    try:
-        investor_obj = Investor.objects.get(email=email)
-        investor_obj.generate_license()
-    except Investor.DoesNotExist:
-        investor_obj = Investor.objects.create(
-            name=username,
-            email=email,
-            is_active=is_active
-        )
-        investor_obj.generate_license()
-    return investor_obj
-
-def get_farm_serialized_data(farm):
-    """Serialize farm data for response"""
-    return {
-        "id": farm.id,
-        "name": farm.name,
-        "address": farm.address,
-        "capacity": farm.capacity,
-        "latitude": farm.latitude,
-        "longitude": farm.longitude,
-        "investor": {
-            "id": farm.investor.id,
-            "name": farm.investor.name
-        } if farm.investor else None,
-        "created_at": farm.time_created.isoformat() if farm.time_created else None
-    }
 
 # -------------------------- FARM INFO MANAGEMENT ------------------------
 class FarmCreateAPIView(APIView):
@@ -355,8 +246,6 @@ class FarmListAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    pagination_class = FarmPagination
-
     def get(self, request):
         try:
             if request.user.role == "admin":
@@ -388,16 +277,12 @@ class FarmListAPIView(APIView):
                     "code": "INVALID_ROLE"
                 }, status=status.HTTP_403_FORBIDDEN)
             
-            # Paginate results
-            paginator = self.pagination_class()
-            result_page = paginator.paginate_queryset(farms, request)
+            farm_list = [get_farm_serialized_data(farm) for farm in farms]
             
-            farm_list = [get_farm_serialized_data(farm) for farm in result_page]
-            
-            return paginator.get_paginated_response({
+            return Response({
                 "success": True,
                 "data": farm_list
-            })
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(f"Error in FarmListAPIView: {str(e)}")
@@ -455,3 +340,4 @@ class FarmDetailsView(APIView):
                 "error": "An unexpected error occurred",
                 "code": "PROCESSING_ERROR"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

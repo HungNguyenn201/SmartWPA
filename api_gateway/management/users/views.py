@@ -1,378 +1,20 @@
-import re
+"""User management views"""
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.pagination import PageNumberPagination
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from permissions.models import Account, License
-from permissions.views import IsAdminMain, CanDeleteUser
-from facilities.models import Farm, Turbines, Investor
-from datetime import datetime, timedelta
+from permissions.views import CanDeleteUser
+from facilities.models import Farm, Turbines
 from django.db import IntegrityError
-import logging
+from django.db import transaction
 from django.db.models import Q
+from api_gateway.management.common.helpers import create_or_get_investor, UserValidationError
+from api_gateway.management.users.validators import validate_user_input
+import logging
 
-# Cấu hình logging
 logger = logging.getLogger(__name__)
-
-# Custom pagination class
-class UserPagination(PageNumberPagination):
-    page_size = 25
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-# Custom exception class
-class UserValidationError(Exception):
-    pass
-
-# -------------------------- HELPER FUNCTIONS ------------------------
-def get_token_for_user(user):
-    """Tạo JWT token cho user"""
-    refresh = RefreshToken.for_user(user)
-    return {
-        'access': str(refresh.access_token),
-        'refresh': str(refresh)
-    }
-
-def check_license(user):
-    """
-    Kiểm tra license của user, với các trường hợp:
-    - Nếu là investor, kiểm tra license của investor_profile
-    - Nếu là farm_admin hoặc staff, kiểm tra license của farm.investor
-    """
-    try:
-        if user.role == 'investor':
-            if not user.investor_profile:
-                logger.warning(f"No investor profile found for user {user.username}")
-                return False
-            license_obj = License.objects.get(investor=user.investor_profile)
-            return license_obj.is_valid()
-        elif user.role in ['farm_admin', 'staff'] and user.farm and user.farm.investor:
-            license_obj = License.objects.get(investor=user.farm.investor)
-            return license_obj.is_valid()
-        logger.warning(f"Invalid role or missing data for license check: {user.role}")
-        return False
-    except License.DoesNotExist:
-        logger.warning(f"License not found for user {user.username}")
-        return False
-    except Exception as e:
-        logger.error(f"Error checking license for user {user.username}: {str(e)}")
-        return False
-
-def validate_username(username):
-    """Validate username format và length"""
-    if not username:
-        return {"valid": False, "error": "Username cannot be empty", "code": "EMPTY_USERNAME"}
-    if len(username) < 4:
-        return {"valid": False, "error": "Username must be at least 4 characters long", "code": "INVALID_USERNAME_LENGTH"}
-    if len(username) > 150:
-        return {"valid": False, "error": "Username is too long (max 150 characters)", "code": "INVALID_USERNAME_LENGTH"}
-    if not re.match(r'^[a-zA-Z0-9_]+$', username):
-        return {"valid": False, "error": "Username can only contain letters, numbers, and underscores", "code": "INVALID_USERNAME_FORMAT"}
-    if Account.objects.filter(username=username).exists():
-        return {"valid": False, "error": "Username already exists", "code": "USERNAME_EXISTS"}
-    return {"valid": True}
-
-def validate_password(password):
-    """Validate password strength"""
-    if not password:
-        return {"valid": False, "error": "Password cannot be empty", "code": "EMPTY_PASSWORD"}
-    if len(password) < 8:
-        return {"valid": False, "error": "Password must be at least 8 characters long", "code": "INVALID_PASSWORD_LENGTH"}
-    if not re.match(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$', password):
-        return {"valid": False, "error": "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character", "code": "INVALID_PASSWORD_FORMAT"}
-    return {"valid": True}
-
-def validate_email(email, exclude_user_id=None):
-    """Validate email format và uniqueness"""
-    if not email:
-        return {"valid": False, "error": "Email cannot be empty", "code": "EMPTY_EMAIL"}
-    if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
-        return {"valid": False, "error": "Invalid email format", "code": "INVALID_EMAIL"}
-    query = Account.objects.filter(email=email)
-    if exclude_user_id:
-        query = query.exclude(id=exclude_user_id)
-    if query.exists():
-        return {"valid": False, "error": "Email already exists", "code": "EMAIL_EXISTS"}
-    return {"valid": True}
-
-def validate_user_input(username=None, email=None, password=None, exclude_user_id=None):
-    """Validate tất cả user input"""
-    errors = []
-    if username is not None:
-        result = validate_username(username)
-        if not result["valid"]:
-            errors.append(result)
-    if email is not None:
-        result = validate_email(email, exclude_user_id)
-        if not result["valid"]:
-            errors.append(result)
-    if password is not None:
-        result = validate_password(password)
-        if not result["valid"]:
-            errors.append(result)
-    return errors
-
-def create_or_get_investor(email, username, is_active=True):
-    """Tạo hoặc lấy Investor object và đảm bảo có License"""
-    try:
-        investor_obj = Investor.objects.get(email=email)
-        investor_obj.generate_license()
-    except Investor.DoesNotExist:
-        investor_obj = Investor.objects.create(
-            name=username,
-            email=email,
-            is_active=is_active
-        )
-        investor_obj.generate_license()
-    return investor_obj
-
-# -------------------------- LOGIN & REGISTRATION API VIEW ------------------------
-
-class TokenRefreshView(APIView):
-    def post(self, request, format=None):
-        refresh_token = request.data.get('refresh')
-        if not refresh_token:
-            return Response({
-                'success': False,
-                'error': 'Refresh token is missing'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            refresh = RefreshToken(refresh_token)
-            refresh.verify()
-            # get info user from token
-            user_id = refresh.payload.get('user_id')
-            user = Account.objects.get(id=user_id)
-
-            if not user.is_active:
-                return Response({
-                    'success': False,
-                    'error': 'User account is not active'}, status=status.HTTP_403_FORBIDDEN)
-                    
-            # Kiểm tra license mỗi khi refresh token
-            if user.role in ['investor', 'farm_admin', 'staff']:
-                if not check_license(user):
-                    if user.role == 'investor':
-                        error_message = 'License is invalid or expired'
-                    else:
-                        error_message = 'Farm license is invalid or expired'
-                    return Response({
-                        'success': False,
-                        'error': error_message}, status=status.HTTP_403_FORBIDDEN)
-                        
-            access_token = refresh.access_token
-            exp_timestamp = access_token['exp']
-            exp_datetime = datetime.utcfromtimestamp(exp_timestamp).strftime('%Y-%m-%d %H:%M:%S')
-
-            return Response({
-                'success': True,
-                'data': {
-                    'token': {'access': str(access_token)},
-                    'expires_at': exp_datetime
-                }
-            }, status= status.HTTP_200_OK)
-        except Account.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'User does not exist'}, status=status.HTTP_404_NOT_FOUND)
-        except Exception:
-            return Response({
-                'success': False,
-                'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
-
-class LicenseManagementView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminMain]
-
-    def post(self, request, investor_id=None):
-        """Tạo license cho Investor mới"""
-        if investor_id:
-            return Response({
-                "success": False,
-                "error": "POST method not allowed for this endpoint",
-                "code": "METHOD_NOT_ALLOWED"
-            }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
-
-        email = request.data.get('email')
-        username = request.data.get('username')
-        password = request.data.get('password')
-        is_permanent = request.data.get('is_permanent', True)
-        expiry_date = request.data.get('expiry_date', None)
-
-        if not email or not username or not password:
-            return Response({
-                "success": False,
-                "error": "Missing required fields",
-                "code": "MISSING_FIELDS"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validate input
-        validation_errors = validate_user_input(username=username, email=email, password=password)
-        if validation_errors:
-            return Response({
-                "success": False,
-                "error": validation_errors[0]["error"],
-                "code": validation_errors[0]["code"]
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Tạo user with investor role
-        investor = Account.objects.create_user(
-            email=email,
-            username=username,
-            password=password,
-            role='investor'
-        )
-
-        # Tìm hoặc tạo đối tượng Investor tương ứng
-        investor_obj = create_or_get_investor(email, username, investor.is_active)
-        
-        # Liên kết Account với Investor
-        investor.investor_profile = investor_obj
-        investor.save()
-
-        # Cập nhật license nếu có thay đổi
-        try:
-            license_obj = License.objects.get(investor=investor_obj)
-            if not is_permanent and expiry_date:
-                try:
-                    expiry = datetime.now() + timedelta(days=int(expiry_date))
-                    license_obj.expiry_date = expiry
-                    license_obj.is_permanent = False
-                    license_obj.save()
-                except (ValueError, TypeError):
-                    logger.error(f"Invalid expiry_date format: {expiry_date}")
-            elif is_permanent:
-                license_obj.is_permanent = True
-                license_obj.expiry_date = None
-                license_obj.save()
-            license_key = license_obj.key
-        except License.DoesNotExist:
-            # Nếu chưa có license, tạo mới
-            expiry = None
-            if not is_permanent and expiry_date:
-                try:
-                    expiry = datetime.now() + timedelta(days=int(expiry_date))
-                except (ValueError, TypeError):
-                    logger.error(f"Invalid expiry_date format: {expiry_date}")
-            license_obj = investor_obj.generate_license(is_permanent=is_permanent, expiry_date=expiry)
-            license_key = license_obj.key
-
-        return Response({
-            "success": True,
-            "data": {
-                "username": investor.username,
-                "license_key": license_key,
-                "is_permanent": is_permanent,
-                "expiry_date": expiry if expiry else "Never"
-            }
-        }, status=status.HTTP_201_CREATED)
-
-    def patch(self, request, investor_id):
-        """Gia hạn hoặc vô hiệu hóa license"""
-        try:
-            # Tìm account trước
-            investor_account = Account.objects.get(id=investor_id, role='investor')
-            
-            # Kiểm tra xem account này có liên kết với Investor không
-            if not investor_account.investor_profile:
-                return Response({
-                    "success": False,
-                    "error": "No investor profile associated with this account",
-                    "code": "NO_INVESTOR_PROFILE"
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            # Lấy License từ đối tượng Investor
-            try:
-                license = License.objects.get(investor=investor_account.investor_profile)
-            except License.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "License not found for this investor",
-                    "code": "LICENSE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
-                
-        except Account.DoesNotExist:
-            return Response({
-                "success": False,
-                "error": "Investor account not found",
-                "code": "INVESTOR_NOT_FOUND"
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        action = request.data.get('action', None)
-        if not action:
-            return Response({
-                "success": False,
-                "error": "Action is required",
-                "code": "MISSING_ACTION"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if action == 'extend':
-            days = request.data.get('days')
-            if days is None:
-                return Response({
-                    "success": False,
-                    "error": "Days parameter is required for extend action",
-                    "code": "MISSING_DAYS"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            try:
-                days = int(days)
-                if days <= 0:
-                    return Response({
-                        "success": False,
-                        "error": "Days must be greater than 0",
-                        "code": "INVALID_DAYS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
-            except ValueError:
-                return Response({
-                    "success": False,
-                    "error": "Days must be a valid number",
-                    "code": "INVALID_DAYS"
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            license.expiry_date = datetime.now() + timedelta(days=days)
-            license.is_permanent = False
-            
-            # Tự động cập nhật token của tất cả user liên quan đến investor này
-            try:
-                # Lấy danh sách farm liên quan đến investor này
-                farms = Farm.objects.filter(investor=investor_account.investor_profile)
-                
-                # Tìm tất cả farm_admin và staff của các farm này
-                farm_users = Account.objects.filter(farm__in=farms)
-                
-                # Log thông tin
-                logger.warning(f"License extended for investor {investor_account.username}. Affected farms: {farms.count()}, Affected users: {farm_users.count()}")
-                
-                # Cập nhật thông tin license cho user liên quan không cần thiết
-                # vì mỗi khi login hoặc refresh token, hệ thống sẽ kiểm tra license mới nhất
-            except Exception as e:
-                logger.error(f"Error updating related users for investor {investor_account.username}: {str(e)}")
-                # Không return lỗi ở đây vì việc mở rộng license đã thành công
-                # Chỉ log lại để theo dõi
-        
-        elif action == 'disable':
-            license.expiry_date = datetime.now() - timedelta(days=1)
-            license.is_permanent = False
-        elif action == 'make_permanent':
-            license.expiry_date = None
-            license.is_permanent = True
-        else:
-            return Response({
-                "success": False,
-                "error": "Invalid action. Must be one of: extend, disable, make_permanent",
-                "code": "INVALID_ACTION"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        license.save()
-        return Response({
-            "success": True,
-            "data": {
-                "new_expiry": license.expiry_date,
-                "is_permanent": license.is_permanent
-            }
-        }, status=status.HTTP_200_OK)
 
 # ----------------------- CREATE USER ----------------------------
 class AdminCreateUserAPIView(APIView):
@@ -444,7 +86,6 @@ class AdminCreateUserAPIView(APIView):
             user = None
             if role == 'investor':
                 # Tạo investor và license trong một transaction
-                from django.db import transaction
                 with transaction.atomic():
                     # Tạo investor mới
                     user = Account.objects.create_user(
@@ -558,7 +199,6 @@ class InvestorCreateUserAPIView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             # Tạo user với transaction để đảm bảo tính nhất quán
-            from django.db import transaction
             with transaction.atomic():
                 user = Account.objects.create_user(
                     username=username,
@@ -656,7 +296,6 @@ class FarmAdminCreateUserAPIView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
             # Tạo user với transaction để đảm bảo tính nhất quán
-            from django.db import transaction
             with transaction.atomic():
                 user = Account.objects.create_user(
                     username=username,
@@ -692,90 +331,6 @@ class FarmAdminCreateUserAPIView(APIView):
                 "error": "An error occurred while creating the staff user",
                 "code": "USER_CREATION_ERROR"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# -----------------LOGIN --------------------------------
-class UserLoginView(APIView):
-    authentication_classes = []
-    permission_classes = []
-
-    def post(self, request, format=None):
-        username = request.data.get('username')
-        password = request.data.get('password')
-
-        if not username or not password:
-            return Response(
-                {'success': False, 'error': 'Username and password are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            user = Account.objects.get(username=username)
-        except Account.DoesNotExist:
-            return Response(
-                {'success': False, 'error': 'Invalid username or password'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        if not user.is_active:
-            return Response(
-                {'success': False, 'error': 'Your account has been deactivated. Please contact support.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        if not user.check_password(password):
-            return Response(
-                {'success': False, 'error': 'Invalid username or password'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        if user.role == 'investor':
-            if not check_license(user):
-                return Response(
-                    {'success': False, 'error': 'License is invalid or expired'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        elif user.role in ['farm_admin', 'staff'] and user.farm:
-            if not check_license(user):
-                return Response(
-                    {'success': False, 'error': 'Farm license is invalid or expired'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        token = get_token_for_user(user)
-        return Response({
-            'success': True,
-            'data': {
-                'token': token,
-                'username': user.username,
-                'role': user.role
-            }
-        }, status=status.HTTP_200_OK)
-
-
-class LogoutAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        try:
-            refresh_token = request.data.get('refresh_token')
-            if not refresh_token:
-                return Response({
-                    "success": False,
-                    "error": "Refresh token is required",
-                    "code": "REFRESH_TOKEN_REQUIRED"
-                }, status=status.HTTP_400_BAD_REQUEST)
-                
-            token = RefreshToken(refresh_token)
-            token.blacklist() 
-            return Response({
-                "success": True,
-                "message": "Logged out successfully"
-            }, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({
-                "success": False,
-                "error": str(e),
-                "code": "LOGOUT_FAILED"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
 
 # ------------------------USER MANAGEMENT ------------------------
 class UserInfoView(APIView):
@@ -956,7 +511,6 @@ class UserInfoView(APIView):
 class UserListAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
-    pagination_class = UserPagination
 
     def get(self, request):
         try:
@@ -1015,12 +569,8 @@ class UserListAPIView(APIView):
                     "code": "INVALID_ROLE"
                 }, status=status.HTTP_403_FORBIDDEN)
             
-            # Paginate results
-            paginator = self.pagination_class()
-            result_page = paginator.paginate_queryset(users, request)
-            
             user_list = []
-            for user in result_page:
+            for user in users:
                 user_data = {
                     "id": user.id,
                     "username": user.username,
@@ -1064,10 +614,10 @@ class UserListAPIView(APIView):
                 
                 user_list.append(user_data)
             
-            return paginator.get_paginated_response({
+            return Response({
                 "success": True,
                 "data": user_list
-            })
+            }, status=status.HTTP_200_OK)
             
         except Exception as e:
             logger.error(f"Error in UserListAPIView: {str(e)}")
@@ -1302,3 +852,4 @@ class UserDeleteAPIView(APIView):
                 "error": f"An unexpected error occurred: {str(e)}",
                 "code": "INTERNAL_SERVER_ERROR"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
