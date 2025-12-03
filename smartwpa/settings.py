@@ -226,6 +226,31 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        'acquisition.influx_db': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.influx_db.sync_service': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.influx_db.influx_service': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.influx_db.influxdb_client': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.influx_db.config_manager': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
     'root': {
         'handlers': ['file', 'console'],

@@ -65,3 +65,25 @@ class HISPoint(models.Model):
         if self.turbine:
             return f"{self.farm.name} - {self.turbine.name} - {self.point_type.name}"
         return f"{self.farm.name} - {self.point_type.name}"
+
+
+class FactoryHistorical(models.Model):
+    farm = models.ForeignKey(Farm, models.DO_NOTHING, related_name='acquisition_historical')
+    time_stamp = models.DateTimeField(null=False)
+    # Power data
+    active_power = models.FloatField(null=True, verbose_name='Power generate of farm (MW)')
+    # Weather data
+    wind_speed = models.FloatField(null=True, verbose_name='Wind speed at 100m (m/s)')
+    wind_dir = models.FloatField(null=True, verbose_name='Wind direction at 100m')
+    air_temp = models.FloatField(null=True, verbose_name='Ambient Temperature (oC)')
+    pressure = models.FloatField(null=True, verbose_name='Air pressure of farm (%)')
+    hud = models.FloatField(null=True, verbose_name='Relative humidity of farm (%)')
+    
+    class Meta:
+        ordering = ('time_stamp',)
+        unique_together = ('farm', 'time_stamp')
+        verbose_name = 'Factory Historical Data'
+        verbose_name_plural = 'Factory Historical Data'
+    
+    def __str__(self):
+        return f'{self.farm.name} - {self.time_stamp}'

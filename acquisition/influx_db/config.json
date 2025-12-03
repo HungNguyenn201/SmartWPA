@@ -1,0 +1,71 @@
+{
+    "influxdb": {
+        "url": "http://192.168.234.49:8086/",
+        "token": "tm4Kv0QI3idBcON2r6P1uPvc9OsS4rNfKmRSScipZsgxjTCpp7NKU71PZpMf4xr4d9TVMqVS2PV37g9oYlHdfA==",
+        "org": "ATS"
+    },
+    "ppc_configs": {
+        "PPC1": {
+            "bucket": "Default",
+            "measurements": {
+                "power": "p259CC063BA354933B4156077D7528E7B",
+                "wind_speed": "p9D5678D0E30540C59F3780155ED33D6C",
+                "wind_direction": "abchihfosd4884ef_wind_dir",
+                "temperature": "xyz789temp001",
+                "humidity": "def456hum002",
+                "pressure": "def456press003"
+            },
+            "fields": {
+                "power": "dVal",
+                "wind_speed": "dVal",
+                "wind_direction": "dVal",
+                "temperature": "dVal",
+                "humidity": "dVal",
+                "pressure": "dVal"
+            }
+        }
+    },
+    "sync_settings": {
+        "interval_minutes": 10,
+        "lookback_hours": 24
+    },
+    "requests": [
+        {
+            "ppc_id": "PPC1",
+            "data_type": "active_power"
+        },
+        {
+            "ppc_id": "PPC1",
+            "data_type": "wind_speed"
+        },
+        {
+            "ppc_id": "PPC1",
+            "data_type": "wind_direction"
+        },
+        {
+            "ppc_id": "PPC1",
+            "data_type": "temperature"
+        },
+        {
+            "ppc_id": "PPC1",
+            "data_type": "humidity"
+        },
+        {
+            "ppc_id": "PPC1",
+            "data_type": "pressure"
+        }
+    ],
+    "factory_mapping": {
+        "PPC1": 1,
+        "PPC2": 1,
+        "PPC3": 1
+    },
+    "data_mapping": {
+        "active_power": "active_power",
+        "wind_speed": "wind_speed",
+        "wind_direction": "wind_dir",
+        "temperature": "air_temp",
+        "humidity": "hud",
+        "pressure": "pressure"
+    }
+}
