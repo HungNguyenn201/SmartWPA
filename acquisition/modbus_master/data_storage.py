@@ -7,14 +7,14 @@ import pandas as pd
 
 from acquisition.models import FactoryHistorical
 from facilities.models import Farm
+from ._header import CACHE_SIZE, RESAMPLE_INTERVAL
 
 logger = logging.getLogger(__name__)
 
 
 class ModbusDataStorage:
-    CACHE_SIZE = 15
-    RESAMPLE_INTERVAL = '15T'
-    
+    CACHE_SIZE = CACHE_SIZE
+    RESAMPLE_INTERVAL = RESAMPLE_INTERVAL
     def __init__(self, factory_id: int = 1):
         self.factory_id = factory_id
         self.factory: Optional[Farm] = None

@@ -37,6 +37,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
+    # Third-party apps
+    'rest_framework',
+    'rest_framework_simplejwt',
+    
+    # Local apps
+    'permissions',
+    'facilities',
+    'acquisition',
+    'api_gateway',
 ]
 
 MIDDLEWARE = [
@@ -247,6 +257,26 @@ LOGGING = {
             'propagate': False,
         },
         'acquisition.influx_db.config_manager': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.smarthis': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.smarthis.get_data': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.smarthis.restful_client': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.smarthis.handle_time': {
             'handlers': ['file', 'console'],
             'level': 'WARNING',
             'propagate': False,
