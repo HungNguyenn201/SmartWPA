@@ -40,6 +40,9 @@ from api_gateway.management import (
     HISPointListAPIView,
     HISPointDetailsView,
 )
+from api_gateway.turbines_analysis.classification_rate import ClassificationRateAPIView
+from api_gateway.turbines_analysis.distribution import DistributionAPIView
+from api_gateway.turbines_analysis.indicators import TurbineIndicatorAPIView, FarmIndicatorAPIView
 
 urlpatterns = [
     # Authentication endpoints
@@ -88,5 +91,13 @@ urlpatterns = [
     path('api/his-points/<int:his_point_id>/', HISPointDetailsView.as_view(), name='his-point-details'),
     path('api/his-points/<int:his_point_id>/update/', HISPointUpdateAPIView.as_view(), name='his-point-update'),
     path('api/his-points/<int:his_point_id>/delete/', HISPointDeleteAPIView.as_view(), name='his-point-delete'),
+    
+    # Turbine analysis endpoints
+    path('api/turbines/<int:turbine_id>/classification-rate/', ClassificationRateAPIView.as_view(), name='classification-rate'),
+    path('api/turbines/<int:turbine_id>/distribution/', DistributionAPIView.as_view(), name='distribution'),
+    path('api/turbines/<int:turbine_id>/indicators/', TurbineIndicatorAPIView.as_view(), name='turbine-indicators'),
+    
+    # Farm analysis endpoints
+    path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
 ]
 

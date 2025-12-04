@@ -176,16 +176,6 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': False,
         },
-        'api_gateway': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'api_gateway.management': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
         'api_gateway.management.auth': {
             'handlers': ['file', 'console'],
             'level': 'WARNING',
@@ -221,6 +211,11 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        'api_gateway.turbines_analysis': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
         'permissions': {
             'handlers': ['file', 'console'],
             'level': 'WARNING',
@@ -232,11 +227,6 @@ LOGGING = {
             'propagate': False,
         },
         'acquisition': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.influx_db': {
             'handlers': ['file', 'console'],
             'level': 'WARNING',
             'propagate': False,
@@ -261,11 +251,6 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
-        'acquisition.smarthis': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
         'acquisition.smarthis.get_data': {
             'handlers': ['file', 'console'],
             'level': 'WARNING',
@@ -282,11 +267,6 @@ LOGGING = {
             'propagate': False,
         },
         'acquisition.scheduler': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.modbus_master': {
             'handlers': ['file', 'console'],
             'level': 'WARNING',
             'propagate': False,
