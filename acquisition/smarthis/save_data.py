@@ -1,10 +1,9 @@
-from acquisition.models import FactoryHistorical
+from acquisition.models import FactoryHistorical, HISPoint
 from facilities.models import Farm
 from django.utils import timezone
 from django.db import transaction
 from datetime import timedelta, datetime
 import pandas as pd
-import numpy as np
 import logging
 
 from .get_data import get_data_smartHis, get_points_collection
@@ -64,30 +63,6 @@ def process_factory_row(row, points_mapping):
                         pass
     return result
 
-def process_turbine_row(row, points_mapping):
-    wind_speed_values = []
-    wind_dir_values = []
-    
-    for point_name, column_name in points_mapping.items():
-        if point_name in row.index:
-            value = row[point_name]
-            if pd.notna(value):
-                try:
-                    float_value = float(value)
-                    if column_name.startswith('wind_speed'):
-                        wind_speed_values.append(float_value)
-                    elif column_name.startswith('wind_dir'):
-                        wind_dir_values.append(float_value)
-                except (ValueError, TypeError):
-                    pass
-    
-    result = {}
-    if wind_speed_values:
-        result['wind_speed'] = float(np.mean(wind_speed_values))
-    if wind_dir_values:
-        result['wind_dir'] = float(np.mean(wind_dir_values))
-    
-    return result
 
 def save_farm_data_to_db(farm_id):
     try:
@@ -180,12 +155,32 @@ def save_farm_data_to_db(farm_id):
         existing_records = FactoryHistorical.objects.filter(
             farm=farm,
             time_stamp__in=valid_timestamps
-        ).values_list('time_stamp', flat=True)
+        ).values_list('time_stamp', 'turbine_id')
         
-        existing_timestamps_set = set(existing_records)
+        existing_keys_set = set((ts, tid) for ts, tid in existing_records)
+        
+        turbine_points_mapping = {}
+        if points_turbines_mapping:
+            try:
+                turbine_points = HISPoint.objects.filter(
+                    farm_id=farm_id,
+                    is_active=True,
+                    point_type__level='turbine',
+                    turbine__isnull=False
+                ).select_related('turbine', 'point_type')
+                
+                for his_point in turbine_points:
+                    if his_point.point_name in points_turbines_mapping:
+                        if his_point.turbine not in turbine_points_mapping:
+                            turbine_points_mapping[his_point.turbine] = {}
+                        field_name = FIELD_MAPPING.get(his_point.point_type.column_name)
+                        if field_name:
+                            turbine_points_mapping[his_point.turbine][his_point.point_name] = field_name
+            except Exception as e:
+                logger.error(f"Failed to build turbine points mapping for farm {farm_id}: {e}", exc_info=True)
         
         records_to_create = []
-        seen_timestamps = set()
+        seen_keys = set()
         stats = {'created': 0, 'skipped': 0, 'errors': 0}
         
         for timestamp in sorted_timestamps:
@@ -194,44 +189,56 @@ def save_farm_data_to_db(farm_id):
                 stats['errors'] += 1
                 continue
             
-            if timestamp_dt in existing_timestamps_set:
-                stats['skipped'] += 1
-                continue
-            
-            if timestamp_dt in seen_timestamps:
-                stats['skipped'] += 1
-                continue
-            
-            seen_timestamps.add(timestamp_dt)
-            
-            data_point = {}
-            
             if not df_factory.empty and timestamp in df_factory.index:
                 factory_row = df_factory.loc[timestamp]
                 factory_data_row = process_factory_row(factory_row, points_factory_mapping)
-                data_point.update(factory_data_row)
+                
+                if factory_data_row:
+                    key = (timestamp_dt, None)
+                    if key not in existing_keys_set and key not in seen_keys:
+                        seen_keys.add(key)
+                        records_to_create.append(
+                            FactoryHistorical(
+                                farm=farm,
+                                turbine=None,
+                                time_stamp=timestamp_dt,
+                                **factory_data_row
+                            )
+                        )
             
             if not df_turbines.empty and timestamp in df_turbines.index:
                 turbines_row = df_turbines.loc[timestamp]
-                turbine_data_row = process_turbine_row(turbines_row, points_turbines_mapping)
-                data_point.update(turbine_data_row)
-            
-            if not data_point:
-                stats['skipped'] += 1
-                continue
-            
-            records_to_create.append(
-                FactoryHistorical(
-                    farm=farm,
-                    time_stamp=timestamp_dt,
-                    **data_point
-                )
-            )
+                
+                for turbine, point_mapping in turbine_points_mapping.items():
+                    turbine_data = {}
+                    
+                    for point_name, field_name in point_mapping.items():
+                        if point_name in turbines_row.index:
+                            value = turbines_row[point_name]
+                            if pd.notna(value):
+                                try:
+                                    turbine_data[field_name] = float(value)
+                                except (ValueError, TypeError):
+                                    pass
+                    
+                    if turbine_data:
+                        key = (timestamp_dt, turbine.id)
+                        if key not in existing_keys_set and key not in seen_keys:
+                            seen_keys.add(key)
+                            records_to_create.append(
+                                FactoryHistorical(
+                                    farm=farm,
+                                    turbine=turbine,
+                                    time_stamp=timestamp_dt,
+                                    **turbine_data
+                                )
+                            )
         
         if records_to_create:
             unique_records = {}
             for record in records_to_create:
-                key = (farm.id, record.time_stamp)
+                turbine_id = record.turbine.id if record.turbine else None
+                key = (farm.id, turbine_id, record.time_stamp)
                 if key not in unique_records:
                     unique_records[key] = record
                 else:

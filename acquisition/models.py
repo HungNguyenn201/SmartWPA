@@ -69,21 +69,50 @@ class HISPoint(models.Model):
 
 class FactoryHistorical(models.Model):
     farm = models.ForeignKey(Farm, models.DO_NOTHING, related_name='acquisition_historical')
+    turbine = models.ForeignKey(Turbines, models.DO_NOTHING, related_name='turbine_historical', 
+                               null=True, blank=True, 
+                               help_text='Null for farm-level data, set for turbine-level data')
     time_stamp = models.DateTimeField(null=False)
     # Power data
-    active_power = models.FloatField(null=True, verbose_name='Power generate of farm (MW)')
+    active_power = models.FloatField(null=True, verbose_name='Active Power (MW)')
     # Weather data
     wind_speed = models.FloatField(null=True, verbose_name='Wind speed at 100m (m/s)')
     wind_dir = models.FloatField(null=True, verbose_name='Wind direction at 100m')
     air_temp = models.FloatField(null=True, verbose_name='Ambient Temperature (oC)')
-    pressure = models.FloatField(null=True, verbose_name='Air pressure of farm (%)')
-    hud = models.FloatField(null=True, verbose_name='Relative humidity of farm (%)')
+    pressure = models.FloatField(null=True, verbose_name='Air pressure (%)')
+    hud = models.FloatField(null=True, verbose_name='Relative humidity (%)')
     
     class Meta:
         ordering = ('time_stamp',)
-        unique_together = ('farm', 'time_stamp')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['farm', 'time_stamp'],
+                condition=models.Q(turbine__isnull=True),
+                name='unique_farm_timestamp'
+            ),
+            models.UniqueConstraint(
+                fields=['farm', 'turbine', 'time_stamp'],
+                condition=models.Q(turbine__isnull=False),
+                name='unique_turbine_timestamp'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['farm', 'turbine', 'time_stamp']),
+            models.Index(fields=['farm', 'time_stamp']),
+        ]
         verbose_name = 'Factory Historical Data'
         verbose_name_plural = 'Factory Historical Data'
     
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.turbine and self.turbine.farm != self.farm:
+            raise ValidationError('Turbine must belong to the same farm')
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
+        if self.turbine:
+            return f'{self.farm.name} - {self.turbine.name} - {self.time_stamp}'
         return f'{self.farm.name} - {self.time_stamp}'

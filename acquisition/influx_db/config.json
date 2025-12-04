@@ -60,6 +60,22 @@
         "PPC2": 1,
         "PPC3": 1
     },
+    "turbine_mapping": {
+        "PPC1": {
+            "turbine_wind_speed": {
+                "measurement": "turbine_wind_speed",
+                "field": "dVal",
+                "turbine_name_pattern": "Turbine{:02d}",
+                "data_type": "wind_speed"
+            },
+            "turbine_power": {
+                "measurement": "turbine_power",
+                "field": "dVal",
+                "turbine_name_pattern": "Turbine{:02d}",
+                "data_type": "active_power"
+            }
+        }
+    },
     "data_mapping": {
         "active_power": "active_power",
         "wind_speed": "wind_speed",
