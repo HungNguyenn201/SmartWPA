@@ -281,9 +281,47 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        'acquisition.scheduler': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.modbus_master': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.modbus_master.connection': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.modbus_master.data_reader': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.modbus_master.data_storage': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'acquisition.smarthis.save_data': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
     'root': {
         'handlers': ['file', 'console'],
         'level': 'WARNING',
     },
+}
+
+# Scheduler Configuration
+SCHEDULER_CONFIG = {
+    'MAIN_SYNC_INTERVAL_MINUTES': 15,
+    'MODBUS_COLLECTION_INTERVAL_MINUTES': 5,
+    'CONNECTION_CHECK_INTERVAL_HOURS': 1,
+    'TIMEZONE': 'Asia/Ho_Chi_Minh',
 }
