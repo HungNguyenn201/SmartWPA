@@ -47,6 +47,7 @@ from api_gateway.turbines_analysis.speed_analysis import WindSpeedAnalysisAPIVie
 from api_gateway.turbines_analysis.static_table import StaticTableAPIView
 from api_gateway.turbines_analysis.time_profile import TimeProfileAPIView
 from api_gateway.turbines_analysis.weibull import TurbineWeibullAPIView, FarmWeibullAPIView
+from api_gateway.turbines_analysis.power_curve import TurbinePowerCurveAPIView, FarmPowerCurveAPIView
 
 urlpatterns = [
     # Authentication endpoints
@@ -104,9 +105,11 @@ urlpatterns = [
     path('api/turbines/<int:turbine_id>/static-table/', StaticTableAPIView.as_view(), name='static-table'),
     path('api/turbines/<int:turbine_id>/time-profile/', TimeProfileAPIView.as_view(), name='time-profile'),
     path('api/turbines/<int:turbine_id>/weibull/', TurbineWeibullAPIView.as_view(), name='turbine-weibull'),
+    path('api/turbines/<int:turbine_id>/power-curve/', TurbinePowerCurveAPIView.as_view(), name='turbine-power-curve'),
     
     # Farm analysis endpoints
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
     path('api/farms/<int:farm_id>/weibull/', FarmWeibullAPIView.as_view(), name='farm-weibull'),
+    path('api/farms/<int:farm_id>/power-curve/', FarmPowerCurveAPIView.as_view(), name='farm-power-curve'),
 ]
 
