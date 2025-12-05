@@ -1,3 +1,4 @@
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -12,6 +13,8 @@ from api_gateway.turbines_analysis.helpers.indicators_helpers import (
     serialize_indicator_data,
     aggregate_turbine_indicators
 )
+
+logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class TurbineIndicatorAPIView(APIView):
@@ -82,6 +85,7 @@ class TurbineIndicatorAPIView(APIView):
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
+                logger.warning(f"No indicators computation found for turbine {turbine_id}")
                 return Response({
                     "success": False,
                     "error": "No indicators computed yet for this turbine",
@@ -91,6 +95,7 @@ class TurbineIndicatorAPIView(APIView):
             # Lấy indicator data (đã được prefetch)
             indicator_data = computation.indicator_data.first()
             if not indicator_data:
+                logger.warning(f"Indicator data not found for computation {computation.id} of turbine {turbine_id}")
                 return Response({
                     "success": False,
                     "error": "Indicator data not found for this computation",
@@ -241,6 +246,7 @@ class FarmIndicatorAPIView(APIView):
                             latest_end_time = computation.end_time
             
             if not turbine_indicators:
+                logger.warning(f"No indicator data found for any turbine in farm {farm_id}")
                 return Response({
                     "success": False,
                     "error": "No indicator data found for any turbine in this farm",
@@ -265,6 +271,7 @@ class FarmIndicatorAPIView(APIView):
             })
         
         except Exception as e:
+            logger.error(f"Error in FarmIndicatorAPIView.get for farm {farm_id}: {str(e)}", exc_info=True)
             return Response({
                 "success": False,
                 "error": "An unexpected error occurred",

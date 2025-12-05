@@ -1,4 +1,5 @@
 """Turbine speed analysis views"""
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -17,6 +18,8 @@ from api_gateway.turbines_analysis.helpers.speed_analysis_helpers import (
     calculate_seasonal_distribution,
     prepare_dataframe_from_classification_and_historical
 )
+
+logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class WindSpeedAnalysisAPIView(APIView):
@@ -215,6 +218,7 @@ class WindSpeedAnalysisAPIView(APIView):
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
+                logger.warning(f"No classification computation found for turbine {turbine.id}")
                 return Response({
                     "success": False,
                     "error": "No classification computation found for this turbine",
@@ -264,6 +268,7 @@ class WindSpeedAnalysisAPIView(APIView):
             )
             
             if df is None or df.empty:
+                logger.warning(f"No wind speed data found for turbine {turbine.id} in time range {start_time}-{end_time}")
                 return Response({
                     "success": False,
                     "error": "No wind speed data found for this turbine in specified time range",
@@ -291,6 +296,7 @@ class WindSpeedAnalysisAPIView(APIView):
                     )
             
             if distribution_result is None:
+                logger.error(f"Error calculating wind distribution for turbine {turbine.id}, mode={mode}, time_type={time_type}")
                 return Response({
                     "success": False,
                     "error": "Error calculating distribution",
@@ -315,6 +321,7 @@ class WindSpeedAnalysisAPIView(APIView):
             }
         
         except Exception as e:
+            logger.error(f"Error in WindSpeedAnalysisAPIView._calculate_wind_distribution for turbine {turbine.id}: {str(e)}", exc_info=True)
             return Response({
                 "success": False,
                 "error": "An unexpected error occurred",

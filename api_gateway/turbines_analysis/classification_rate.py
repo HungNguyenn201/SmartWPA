@@ -1,4 +1,5 @@
 """Turbine classification rate views"""
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -8,6 +9,8 @@ from facilities.models import Turbines
 from analytics.models import Computation
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+
+logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class ClassificationRateAPIView(APIView):
@@ -77,6 +80,7 @@ class ClassificationRateAPIView(APIView):
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
+                logger.warning(f"No classification computation found for turbine {turbine_id}")
                 return Response({
                     "success": False,
                     "error": "No classification found for this turbine",
@@ -109,6 +113,7 @@ class ClassificationRateAPIView(APIView):
             })
             
         except Exception as e:
+            logger.error(f"Error in ClassificationRateAPIView.get for turbine {turbine_id}: {str(e)}", exc_info=True)
             return Response({
                 "success": False,
                 "error": "An unexpected error occurred",

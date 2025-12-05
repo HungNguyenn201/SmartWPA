@@ -44,6 +44,7 @@ from api_gateway.turbines_analysis.classification_rate import ClassificationRate
 from api_gateway.turbines_analysis.distribution import DistributionAPIView
 from api_gateway.turbines_analysis.indicators import TurbineIndicatorAPIView, FarmIndicatorAPIView
 from api_gateway.turbines_analysis.speed_analysis import WindSpeedAnalysisAPIView
+from api_gateway.turbines_analysis.static_table import StaticTableAPIView
 
 urlpatterns = [
     # Authentication endpoints
@@ -98,6 +99,7 @@ urlpatterns = [
     path('api/turbines/<int:turbine_id>/distribution/', DistributionAPIView.as_view(), name='distribution'),
     path('api/turbines/<int:turbine_id>/indicators/', TurbineIndicatorAPIView.as_view(), name='turbine-indicators'),
     path('api/turbines/<int:turbine_id>/wind-speed-analysis/', WindSpeedAnalysisAPIView.as_view(), name='wind-speed-analysis'),
+    path('api/turbines/<int:turbine_id>/static-table/', StaticTableAPIView.as_view(), name='static-table'),
     
     # Farm analysis endpoints
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
