@@ -1,11 +1,9 @@
-"""Helper functions for distribution calculations"""
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional, List, Tuple
 
 
 def get_bin_name(source_type: str) -> str:
-    """Get bin name based on source type"""
     bin_names = {
         'wind_speed': 'wind_speed_bin',
         'power': 'power_bin',
@@ -20,7 +18,6 @@ def calculate_global_distribution(
     source_type: str,
     bin_count: int = 50
 ) -> Optional[Dict]:
-    """Calculate global distribution"""
     try:
         if df.empty:
             return None
@@ -67,7 +64,6 @@ def calculate_monthly_distribution(
     source_type: str,
     bin_count: int = 50
 ) -> Optional[Dict]:
-    """Calculate monthly distribution"""
     try:
         if df.empty:
             return None
@@ -143,7 +139,6 @@ def calculate_day_night_distribution(
     source_type: str,
     bin_count: int = 50
 ) -> Optional[Dict]:
-    """Calculate day/night distribution"""
     try:
         if df.empty:
             return None
@@ -220,7 +215,6 @@ def calculate_seasonal_distribution(
     source_type: str,
     bin_count: int = 50
 ) -> Optional[Dict]:
-    """Calculate seasonal distribution"""
     try:
         if df.empty:
             return None
@@ -298,7 +292,6 @@ def prepare_dataframe_from_classification_points(
     classification_points,
     source_type: str
 ) -> Optional[pd.DataFrame]:
-    """Prepare DataFrame from ClassificationPoint queryset"""
     try:
         if not classification_points.exists():
             return None

@@ -1,4 +1,3 @@
-"""Turbine static table views"""
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -21,15 +20,6 @@ logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class StaticTableAPIView(APIView):
-    """
-    API để lấy dữ liệu thống kê dạng bảng tĩnh cho turbine
-    Parameters:
-    - turbine_id (bắt buộc): ID của turbine
-    - source (tùy chọn): Loại dữ liệu (wind_speed, power, wind_direction). 
-      Có thể chỉ định nhiều nguồn bằng cách sử dụng nhiều tham số source.
-      Mặc định: ['power', 'wind_speed']
-    - start_time, end_time (tùy chọn): Thời gian bắt đầu và kết thúc (Unix timestamp in milliseconds)
-    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, CanViewTurbine]
     
@@ -45,7 +35,6 @@ class StaticTableAPIView(APIView):
                     "code": "MISSING_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy turbine với select_related để tối ưu query
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
@@ -55,7 +44,6 @@ class StaticTableAPIView(APIView):
                     "code": "TURBINE_NOT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Kiểm tra quyền truy cập
             permission_response = check_object_permission(
                 request, self, turbine,
                 "You don't have permission to access this turbine"
@@ -63,12 +51,10 @@ class StaticTableAPIView(APIView):
             if permission_response:
                 return permission_response
             
-            # Lấy danh sách sources
             sources = request.query_params.getlist('source', [])
             if not sources:
                 sources = ['power', 'wind_speed']
             
-            # Kiểm tra source hợp lệ
             valid_source_types = ['wind_speed', 'power', 'wind_direction']
             for source_type in sources:
                 if source_type not in valid_source_types:
@@ -78,7 +64,6 @@ class StaticTableAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy thời gian nếu được cung cấp
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             
@@ -102,7 +87,6 @@ class StaticTableAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Tính toán thống kê cho từng source
             all_results = {}
             for source_type in sources:
                 result = self._calculate_statistics(
@@ -138,18 +122,13 @@ class StaticTableAPIView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _calculate_statistics(self, turbine, start_time, end_time, source_type='wind_speed'):
-        """Tính toán các thống kê cơ bản cho nguồn dữ liệu của turbine"""
         try:
-            # Xác định data source dựa trên source_type
-            # wind_speed và power từ ClassificationPoint
-            # wind_direction từ FactoryHistorical
             use_classification = source_type in ['wind_speed', 'power']
             use_historical = source_type == 'wind_direction'
             
             df = None
             
             if use_classification:
-                # Lấy dữ liệu từ ClassificationPoint
                 computation_query = Computation.objects.filter(
                     turbine=turbine,
                     computation_type='classification',
@@ -172,12 +151,10 @@ class StaticTableAPIView(APIView):
                         "code": "NO_COMPUTATION"
                     }, status=status.HTTP_404_NOT_FOUND)
                 
-                # Lấy classification points với filter timestamp nếu có
                 classification_points_query = ClassificationPoint.objects.filter(
                     computation=computation
                 )
                 
-                # Chỉ lấy các fields cần thiết
                 if source_type == 'wind_speed':
                     classification_points_query = classification_points_query.only('timestamp', 'wind_speed')
                 elif source_type == 'power':
@@ -191,14 +168,12 @@ class StaticTableAPIView(APIView):
                 
                 classification_points = classification_points_query.order_by('timestamp')
                 
-                # Chuẩn bị DataFrame
                 df = prepare_dataframe_from_classification_points(
                     classification_points,
                     source_type
                 )
             
             elif use_historical:
-                # Lấy dữ liệu từ FactoryHistorical
                 historical_data_query = FactoryHistorical.objects.filter(
                     turbine=turbine,
                     wind_dir__isnull=False
@@ -214,7 +189,6 @@ class StaticTableAPIView(APIView):
                 
                 historical_data = historical_data_query.order_by('time_stamp')
                 
-                # Chuẩn bị DataFrame
                 df = prepare_dataframe_from_historical(
                     historical_data,
                     source_type
@@ -228,7 +202,6 @@ class StaticTableAPIView(APIView):
                     "code": "NO_DATA"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Tính toán thống kê
             result_data = calculate_statistics_from_dataframe(
                 df,
                 'value',

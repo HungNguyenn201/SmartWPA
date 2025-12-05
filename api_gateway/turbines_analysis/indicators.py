@@ -18,12 +18,10 @@ logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class TurbineIndicatorAPIView(APIView):
-    """API để hiển thị các chỉ số (indicators) cho turbine đã được tính toán trước đó"""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, CanViewTurbine]
     
     def get(self, request, turbine_id=None):
-        """Lấy chỉ số của một turbine"""
         try:
             if not turbine_id:
                 turbine_id = request.query_params.get('turbine_id')
@@ -35,7 +33,6 @@ class TurbineIndicatorAPIView(APIView):
                     "code": "MISSING_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy turbine với select_related để tối ưu query
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
@@ -53,11 +50,9 @@ class TurbineIndicatorAPIView(APIView):
             if permission_response:
                 return permission_response
             
-            # Lấy tham số từ query
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             
-            # Xây dựng query base với select_related và prefetch_related để tối ưu
             computation_query = Computation.objects.filter(
                 turbine=turbine,
                 computation_type='indicators',
@@ -75,13 +70,11 @@ class TurbineIndicatorAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Tìm computation cho khoảng thời gian cụ thể
                 computation = computation_query.filter(
                     start_time=start_time,
                     end_time=end_time
                 ).first()
             else:
-                # Lấy computation mới nhất
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
@@ -92,7 +85,6 @@ class TurbineIndicatorAPIView(APIView):
                     "code": "NO_INDICATORS"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Lấy indicator data (đã được prefetch)
             indicator_data = computation.indicator_data.first()
             if not indicator_data:
                 logger.warning(f"Indicator data not found for computation {computation.id} of turbine {turbine_id}")
@@ -102,7 +94,6 @@ class TurbineIndicatorAPIView(APIView):
                     "code": "NO_INDICATOR_DATA"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Tính daily production và capacity factor với tối ưu query
             daily_production_result = DailyProduction.objects.filter(
                 computation=computation
             ).aggregate(total=Sum('daily_production'))
@@ -113,7 +104,6 @@ class TurbineIndicatorAPIView(APIView):
             ).aggregate(avg=Avg('capacity_factor'))
             capacity_factor_avg = capacity_factor_result.get('avg')
             
-            # Serialize indicator data
             indicator_dict = serialize_indicator_data(
                 indicator_data, 
                 daily_production_total=daily_production_total,
@@ -143,12 +133,10 @@ class TurbineIndicatorAPIView(APIView):
 
 
 class FarmIndicatorAPIView(APIView):
-    """API để hiển thị các chỉ số (indicators) cho farm đã được tính toán trước đó"""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, CanViewFarm]
     
     def get(self, request, farm_id=None):
-        """Lấy chỉ số của một farm"""
         try:
             if not farm_id:
                 farm_id = request.query_params.get('farm_id')
@@ -160,7 +148,6 @@ class FarmIndicatorAPIView(APIView):
                     "code": "MISSING_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy farm với select_related để tối ưu query
             try:
                 farm = Farm.objects.select_related('investor').get(id=farm_id)
             except Farm.DoesNotExist:
@@ -178,7 +165,6 @@ class FarmIndicatorAPIView(APIView):
             if permission_response:
                 return permission_response
             
-            # Lấy tất cả turbines trong farm với select_related
             turbines = Turbines.objects.filter(farm=farm).select_related('farm', 'farm__investor')
             if not turbines.exists():
                 return Response({
@@ -187,12 +173,10 @@ class FarmIndicatorAPIView(APIView):
                     "code": "NO_TURBINES"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Lấy indicator data cho từng turbine với tối ưu query
             turbine_indicators = []
             latest_start_time = None
             latest_end_time = None
             
-            # Sử dụng prefetch_related để tối ưu
             computations = Computation.objects.filter(
                 turbine__in=turbines,
                 computation_type='indicators',
@@ -203,7 +187,6 @@ class FarmIndicatorAPIView(APIView):
                 'capacity_factors'
             )
             
-            # Group computations by turbine
             turbine_computations = {}
             for computation in computations:
                 turbine_id = computation.turbine.id
@@ -216,7 +199,6 @@ class FarmIndicatorAPIView(APIView):
                 if computation:
                     indicator_data = computation.indicator_data.first()
                     if indicator_data:
-                        # Tính daily production và capacity factor từ prefetched data
                         daily_productions = computation.daily_productions.all()
                         daily_production_total = sum(dp.daily_production for dp in daily_productions) if daily_productions else None
                         
@@ -239,7 +221,6 @@ class FarmIndicatorAPIView(APIView):
                         }
                         turbine_indicators.append(turbine_data)
                         
-                        # Cập nhật thời gian
                         if latest_start_time is None or computation.start_time < latest_start_time:
                             latest_start_time = computation.start_time
                         if latest_end_time is None or computation.end_time > latest_end_time:
@@ -253,7 +234,6 @@ class FarmIndicatorAPIView(APIView):
                     "code": "NO_INDICATORS"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Tính toán chỉ số cho farm
             turbine_data_list = [t["data"] for t in turbine_indicators]
             farm_indicators = aggregate_turbine_indicators(turbine_data_list)
             

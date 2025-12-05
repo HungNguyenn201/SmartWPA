@@ -1,4 +1,3 @@
-"""Helper functions for static table calculations"""
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
@@ -9,31 +8,26 @@ def calculate_statistics_from_dataframe(
     value_column: str,
     source_type: str
 ) -> Optional[Dict]:
-    """Calculate statistics from DataFrame"""
     try:
         if df.empty or value_column not in df.columns:
             return None
         
-        # Filter out invalid values
         clean_df = df.dropna(subset=[value_column])
         clean_df = clean_df[~clean_df[value_column].isin([np.inf, -np.inf])]
         
         if clean_df.empty:
             return None
         
-        # Calculate statistics
         total_records = len(df)
         valid_records = len(clean_df)
         
         values = clean_df[value_column].values
         
-        # Get timestamp information
         if 'timestamp' in clean_df.columns:
             timestamps = clean_df['timestamp']
             min_timestamp = timestamps.min()
             max_timestamp = timestamps.max()
             
-            # Calculate time step (interval between samples)
             time_diffs = timestamps.diff().dropna()
             if not time_diffs.empty:
                 most_common_diff = time_diffs.mode()[0] if len(time_diffs.mode()) > 0 else pd.Timedelta(seconds=600)
@@ -41,7 +35,6 @@ def calculate_statistics_from_dataframe(
             else:
                 time_step_seconds = 600.0  # Default: 10 min
             
-            # Convert timestamps to Unix timestamp (milliseconds)
             if isinstance(min_timestamp, pd.Timestamp):
                 start_date = int(min_timestamp.timestamp() * 1000)
             else:
@@ -81,7 +74,6 @@ def prepare_dataframe_from_classification_points(
     classification_points,
     source_type: str
 ) -> Optional[pd.DataFrame]:
-    """Prepare DataFrame from ClassificationPoint queryset for static table"""
     try:
         if not classification_points.exists():
             return None
@@ -122,7 +114,6 @@ def prepare_dataframe_from_historical(
     historical_data,
     source_type: str
 ) -> Optional[pd.DataFrame]:
-    """Prepare DataFrame from FactoryHistorical queryset for static table"""
     try:
         if not historical_data.exists():
             return None

@@ -1,4 +1,3 @@
-"""Turbine classification rate views"""
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,7 +13,6 @@ logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class ClassificationRateAPIView(APIView):
-    """API để hiển thị tỷ lệ phân loại cho turbine đã được tính toán trước đó"""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, CanViewTurbine]
     
@@ -30,7 +28,6 @@ class ClassificationRateAPIView(APIView):
                     "code": "MISSING_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy turbine với select_related để tối ưu query
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
@@ -40,7 +37,6 @@ class ClassificationRateAPIView(APIView):
                     "code": "TURBINE_NOT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Kiểm tra quyền truy cập
             permission_response = check_object_permission(
                 request, self, turbine,
                 "You don't have permission to access this turbine"
@@ -48,11 +44,9 @@ class ClassificationRateAPIView(APIView):
             if permission_response:
                 return permission_response
             
-            # Lấy tham số từ query
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             
-            # Xây dựng query base với select_related và prefetch_related để tối ưu
             computation_query = Computation.objects.filter(
                 turbine=turbine,
                 computation_type='classification',
@@ -70,13 +64,11 @@ class ClassificationRateAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Tìm computation cho khoảng thời gian cụ thể
                 computation = computation_query.filter(
                     start_time=start_time,
                     end_time=end_time
                 ).first()
             else:
-                # Lấy computation mới nhất
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
@@ -87,10 +79,8 @@ class ClassificationRateAPIView(APIView):
                     "code": "NO_CLASSIFICATION"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Lấy dữ liệu classification (đã được prefetch)
             classification_summary = computation.classification_summary.all().order_by('status_code')
             
-            # Chuyển đổi thành format JSON
             classification_rates = {}
             classification_map = {}
             for data in classification_summary:

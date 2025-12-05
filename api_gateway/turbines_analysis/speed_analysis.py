@@ -1,4 +1,3 @@
-"""Turbine speed analysis views"""
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -23,18 +22,6 @@ logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class WindSpeedAnalysisAPIView(APIView):
-    """
-    API để tính toán và trả về dữ liệu phân phối gió và speed rose
-    Parameters:
-    - turbine_id (bắt buộc): ID của turbine
-    - bin_width (tùy chọn): Độ rộng bin, mặc định: 1.0
-    - threshold1 (tùy chọn): Ngưỡng tốc độ gió thấp, mặc định: 4.0
-    - threshold2 (tùy chọn): Ngưỡng tốc độ gió cao, mặc định: 8.0
-    - sectors_number (tùy chọn): Số sector cho speed rose, mặc định: 16
-    - mode (tùy chọn): global (mặc định) hoặc time
-    - time_type (tùy chọn, chỉ cần khi mode=time): monthly, day_night, seasonally
-    - start_time, end_time (tùy chọn): Thời gian bắt đầu và kết thúc (Unix timestamp in milliseconds)
-    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, CanViewTurbine]
     
@@ -50,7 +37,6 @@ class WindSpeedAnalysisAPIView(APIView):
                     "code": "MISSING_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy turbine với select_related để tối ưu query
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
@@ -60,7 +46,6 @@ class WindSpeedAnalysisAPIView(APIView):
                     "code": "TURBINE_NOT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Kiểm tra quyền truy cập
             permission_response = check_object_permission(
                 request, self, turbine,
                 "You don't have permission to access this turbine"
@@ -68,7 +53,6 @@ class WindSpeedAnalysisAPIView(APIView):
             if permission_response:
                 return permission_response
             
-            # Lấy các parameters
             try:
                 bin_width = float(request.query_params.get('bin_width', 1.0))
             except ValueError:
@@ -132,7 +116,6 @@ class WindSpeedAnalysisAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy thời gian nếu được cung cấp
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             
@@ -156,7 +139,6 @@ class WindSpeedAnalysisAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Tính toán phân phối
             result = self._calculate_wind_distribution(
                 turbine,
                 start_time,
@@ -200,9 +182,7 @@ class WindSpeedAnalysisAPIView(APIView):
         mode='global',
         time_type=None
     ):
-        """Calculate wind distribution"""
         try:
-            # Xây dựng query base với select_related để tối ưu
             computation_query = Computation.objects.filter(
                 turbine=turbine,
                 computation_type='classification',
@@ -225,7 +205,6 @@ class WindSpeedAnalysisAPIView(APIView):
                     "code": "NO_COMPUTATION"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Lấy classification points với filter timestamp nếu có
             classification_points_query = ClassificationPoint.objects.filter(
                 computation=computation
             ).only('timestamp', 'wind_speed')
@@ -238,14 +217,11 @@ class WindSpeedAnalysisAPIView(APIView):
             
             classification_points = classification_points_query.order_by('timestamp')
             
-            # Lấy wind direction từ FactoryHistorical nếu có
-            # Chỉ lấy khi có start_time và end_time để tối ưu
             historical_data_list = None
             if start_time and end_time:
                 start_dt = pd.to_datetime(start_time, unit='ms')
                 end_dt = pd.to_datetime(end_time, unit='ms')
                 
-                # Lấy historical data với only để tối ưu (chỉ lấy các field cần thiết)
                 historical_data = FactoryHistorical.objects.filter(
                     turbine=turbine,
                     time_stamp__gte=start_dt,
@@ -261,7 +237,6 @@ class WindSpeedAnalysisAPIView(APIView):
                             'wind_dir': hist.wind_dir
                         })
             
-            # Chuẩn bị DataFrame
             df = prepare_dataframe_from_classification_and_historical(
                 classification_points,
                 historical_data_list
@@ -275,7 +250,6 @@ class WindSpeedAnalysisAPIView(APIView):
                     "code": "NO_DATA"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Tính toán phân phối theo mode
             distribution_result = None
             if mode == 'global':
                 distribution_result = calculate_global_distribution(
@@ -303,7 +277,6 @@ class WindSpeedAnalysisAPIView(APIView):
                     "code": "CALCULATION_ERROR"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            # Thêm metadata
             distribution_result.update({
                 "turbine_id": turbine.id,
                 "turbine_name": turbine.name,

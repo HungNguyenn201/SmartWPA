@@ -1,4 +1,3 @@
-"""Helper functions for speed analysis calculations"""
 import pandas as pd
 import numpy as np
 from scipy.stats import weibull_min
@@ -6,7 +5,6 @@ from typing import Dict, Optional, Tuple
 
 
 def prepare_bins(values: np.ndarray, bin_width: float) -> np.ndarray:
-    """Prepare bins with appropriate density"""
     if len(values) == 0:
         return np.array([0, bin_width])
     
@@ -41,15 +39,12 @@ def prepare_bins(values: np.ndarray, bin_width: float) -> np.ndarray:
 
 
 def compute_histogram(values: np.ndarray, bins: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute histogram"""
     hist, bin_edges = np.histogram(values, bins=bins, density=True)
     hist = hist * 100
     return hist, bin_edges
 
 
 def compute_statistics(values: np.ndarray) -> Tuple[float, float, float]:
-    """Compute statistics"""
-    # Filter out NaN and Inf values
     valid_values = values[~np.isnan(values) & ~np.isinf(values)]
     if len(valid_values) == 0:
         return 0.0, 0.0, 0.0
@@ -57,17 +52,13 @@ def compute_statistics(values: np.ndarray) -> Tuple[float, float, float]:
 
 
 def format_array_values(values) -> list:
-    """Format array values to list of floats"""
     return [float(val) for val in values]
 
 
 def calculate_weibull_curve(wind_speeds: np.ndarray, bin_centers: np.ndarray) -> Tuple[np.ndarray, float, float]:
-    """Calculate Weibull curve and parameters"""
-    # Filter out NaN, Inf, and negative values
     valid_speeds = wind_speeds[~np.isnan(wind_speeds) & ~np.isinf(wind_speeds) & (wind_speeds >= 0)]
     
-    if len(valid_speeds) < 3:  # Need at least 3 points for Weibull fit
-        # Return default values if insufficient data
+    if len(valid_speeds) < 3:
         k = 2.0
         A = float(np.mean(valid_speeds)) if len(valid_speeds) > 0 else 5.0
         if A <= 0:
@@ -87,14 +78,12 @@ def calculate_weibull_curve(wind_speeds: np.ndarray, bin_centers: np.ndarray) ->
             if A <= 0:
                 A = 5.0
         
-        # Calculate Weibull curve, handling edge cases
         with np.errstate(divide='ignore', invalid='ignore'):
             weibull_curve = (k / A) * (bin_centers / A) ** (k - 1) * np.exp(-(bin_centers / A) ** k) * 100
         
         weibull_curve = np.nan_to_num(weibull_curve, nan=0.0, posinf=0.0, neginf=0.0)
         return weibull_curve, k, A
     except Exception:
-        # Fallback to default values
         k = 2.0
         A = float(np.mean(valid_speeds)) if len(valid_speeds) > 0 else 5.0
         if A <= 0:

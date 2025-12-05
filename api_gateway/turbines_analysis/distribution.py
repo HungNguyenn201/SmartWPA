@@ -1,4 +1,3 @@
-"""Turbine distribution views"""
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,17 +21,6 @@ logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 class DistributionAPIView(APIView):
-    """
-    API để tính phân phối cho các loại dữ liệu của turbine (tốc độ gió, công suất)
-    Parameters:
-    - turbine_id (bắt buộc): ID của turbine
-    - source_type (tùy chọn): Loại dữ liệu (wind_speed, power). Mặc định: wind_speed
-    - start_time, end_time (tùy chọn): Thời gian bắt đầu và kết thúc tính phân phối
-    - bin_width (tùy chọn): Độ rộng của bin (mặc định: 1 m/s cho wind_speed, 100 kW cho power)
-    - bin_count (tùy chọn): Số lượng bin (mặc định: 50)
-    - mode (tùy chọn): global (mặc định) hoặc time
-    - time_type (tùy chọn, chỉ cần khi mode=time): monthly, day_night, seasonally
-    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, CanViewTurbine]
     
@@ -48,7 +36,6 @@ class DistributionAPIView(APIView):
                     "code": "MISSING_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy turbine với select_related để tối ưu query
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
@@ -58,7 +45,6 @@ class DistributionAPIView(APIView):
                     "code": "TURBINE_NOT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Kiểm tra quyền truy cập
             permission_response = check_object_permission(
                 request, self, turbine,
                 "You don't have permission to access this turbine"
@@ -66,7 +52,6 @@ class DistributionAPIView(APIView):
             if permission_response:
                 return permission_response
             
-            # Lấy loại dữ liệu (mặc định là wind_speed)
             source_type = request.query_params.get('source_type', 'wind_speed')
             valid_source_types = ['wind_speed', 'power']
             if source_type not in valid_source_types:
@@ -76,7 +61,6 @@ class DistributionAPIView(APIView):
                     "code": "INVALID_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Bin width mặc định dựa vào loại dữ liệu
             default_bin_width = {
                 'wind_speed': 1.0,
                 'power': 100.0,
@@ -127,7 +111,6 @@ class DistributionAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Lấy thời gian nếu được cung cấp
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             
@@ -151,10 +134,8 @@ class DistributionAPIView(APIView):
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Cache key
             cache_key = f"distribution_{turbine_id}_{source_type}_{start_time or 'all'}_{end_time or 'all'}_{bin_width}_{mode}_{time_type or 'none'}_{bin_count}"
             
-            # Kiểm tra cache
             cached_result = cache.get(cache_key)
             if cached_result:
                 return Response({
@@ -162,7 +143,6 @@ class DistributionAPIView(APIView):
                     "data": cached_result
                 })
             
-            # Tính toán phân phối
             result = self._calculate_distribution(
                 turbine,
                 start_time,
@@ -184,7 +164,6 @@ class DistributionAPIView(APIView):
                     "code": "PROCESSING_ERROR"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            # Lưu vào cache
             cache.set(cache_key, result["data"], timeout=3600)
             
             return Response(result)
@@ -207,9 +186,7 @@ class DistributionAPIView(APIView):
         time_type=None, 
         source_type='wind_speed'
     ):
-        """Calculate distribution"""
         try:
-            # Xây dựng query base với select_related và prefetch_related để tối ưu
             computation_query = Computation.objects.filter(
                 turbine=turbine,
                 computation_type='classification',
@@ -232,7 +209,6 @@ class DistributionAPIView(APIView):
                     "code": "NO_COMPUTATION"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Lấy classification points với filter timestamp nếu có
             classification_points_query = ClassificationPoint.objects.filter(
                 computation=computation
             ).only('timestamp', 'wind_speed', 'active_power')
@@ -243,10 +219,8 @@ class DistributionAPIView(APIView):
                     timestamp__lte=end_time
                 )
             
-            # Sử dụng iterator để tối ưu memory cho dataset lớn
             classification_points = classification_points_query.order_by('timestamp')
             
-            # Chuẩn bị DataFrame từ classification points
             df = prepare_dataframe_from_classification_points(
                 classification_points,
                 source_type
@@ -260,7 +234,6 @@ class DistributionAPIView(APIView):
                     "code": "NO_DATA"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            # Tính toán phân phối dựa trên mode
             result = None
             if mode == 'global':
                 result = calculate_global_distribution(df, bin_width, source_type, bin_count)
@@ -280,7 +253,6 @@ class DistributionAPIView(APIView):
                     "code": "CALCULATION_ERROR"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            # Thêm metadata vào kết quả
             result.update({
                 'turbine_id': turbine.id,
                 'turbine_name': turbine.name,

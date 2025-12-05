@@ -1,4 +1,3 @@
-"""Helper functions for indicators calculations"""
 from typing import Dict, List
 from analytics.models import IndicatorData
 
@@ -58,15 +57,6 @@ def serialize_indicator_data(indicator_data: IndicatorData, daily_production_tot
 
 
 def aggregate_turbine_indicators(turbine_indicators: List[Dict]) -> Dict:
-    """
-    Aggregate indicators from multiple turbines to calculate farm indicators
-    
-    Args:
-        turbine_indicators: List of indicator dictionaries from turbines
-        
-    Returns:
-        dict: Farm indicators
-    """
     if not turbine_indicators:
         return {
             "AverageWindSpeed": 0,
@@ -81,7 +71,6 @@ def aggregate_turbine_indicators(turbine_indicators: List[Dict]) -> Dict:
             "Pba": 0
         }
     
-    # Indicators that need average calculation
     avg_indicators = [
         "AverageWindSpeed",
         "LossPercent",
@@ -90,7 +79,6 @@ def aggregate_turbine_indicators(turbine_indicators: List[Dict]) -> Dict:
         "Pba"
     ]
     
-    # Indicators that need sum calculation
     sum_indicators = [
         "RealEnergy",
         "ReachableEnergy",
@@ -101,7 +89,6 @@ def aggregate_turbine_indicators(turbine_indicators: List[Dict]) -> Dict:
     
     farm_indicators = {}
     
-    # Calculate average for avg indicators
     for key in avg_indicators:
         values = [ind.get(key, 0) for ind in turbine_indicators if ind.get(key) is not None]
         if values:
@@ -109,7 +96,6 @@ def aggregate_turbine_indicators(turbine_indicators: List[Dict]) -> Dict:
         else:
             farm_indicators[key] = 0
     
-    # Calculate sum for sum indicators
     for key in sum_indicators:
         values = [ind.get(key, 0) for ind in turbine_indicators if ind.get(key) is not None]
         farm_indicators[key] = round(sum(values), 2)
