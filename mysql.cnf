@@ -1,0 +1,9 @@
+[client]
+database = 'smartwpa'
+user = 'root'
+password = 'root'
+default-character-set = utf8
+host = 'localhost'
+port = '3306'
+wait_timeout = 28800 
+max_allowed_packet = 512M

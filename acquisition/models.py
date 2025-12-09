@@ -84,17 +84,8 @@ class FactoryHistorical(models.Model):
     
     class Meta:
         ordering = ('time_stamp',)
-        constraints = [
-            models.UniqueConstraint(
-                fields=['farm', 'time_stamp'],
-                condition=models.Q(turbine__isnull=True),
-                name='unique_farm_timestamp'
-            ),
-            models.UniqueConstraint(
-                fields=['farm', 'turbine', 'time_stamp'],
-                condition=models.Q(turbine__isnull=False),
-                name='unique_turbine_timestamp'
-            ),
+        unique_together = [
+            ['farm', 'turbine', 'time_stamp'],
         ]
         indexes = [
             models.Index(fields=['farm', 'turbine', 'time_stamp']),
@@ -107,6 +98,25 @@ class FactoryHistorical(models.Model):
         from django.core.exceptions import ValidationError
         if self.turbine and self.turbine.farm != self.farm:
             raise ValidationError('Turbine must belong to the same farm')
+        
+        if self.turbine:
+            if FactoryHistorical.objects.filter(
+                farm=self.farm,
+                turbine=self.turbine,
+                time_stamp=self.time_stamp
+            ).exclude(pk=self.pk).exists():
+                raise ValidationError({
+                    'time_stamp': 'A record with this farm, turbine and time_stamp already exists.'
+                })
+        else:
+            if FactoryHistorical.objects.filter(
+                farm=self.farm,
+                time_stamp=self.time_stamp,
+                turbine__isnull=True
+            ).exclude(pk=self.pk).exists():
+                raise ValidationError({
+                    'time_stamp': 'A record with this farm and time_stamp already exists for farm-level data.'
+                })
     
     def save(self, *args, **kwargs):
         self.clean()
