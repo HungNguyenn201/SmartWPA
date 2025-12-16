@@ -10,6 +10,7 @@ from facilities.models import Farm
 from datetime import datetime, timedelta
 from api_gateway.management.common.helpers import create_or_get_investor
 from api_gateway.management.users.validators import validate_user_input
+from django.db import transaction
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,47 +50,47 @@ class LicenseManagementView(APIView):
                 "code": validation_errors[0]["code"]
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Tạo user with investor role
-        investor = Account.objects.create_user(
-            email=email,
-            username=username,
-            password=password,
-            role='investor'
-        )
+        # Khởi tạo expiry
+        expiry = None
+        if not is_permanent and expiry_date:
+            try:
+                expiry = datetime.now() + timedelta(days=int(expiry_date))
+            except (ValueError, TypeError):
+                logger.error(f"Invalid expiry_date format: {expiry_date}")
+                return Response({
+                    "success": False,
+                    "error": "Invalid expiry_date format. Must be a number of days.",
+                    "code": "INVALID_EXPIRY_DATE"
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Tìm hoặc tạo đối tượng Investor tương ứng
-        investor_obj = create_or_get_investor(email, username, investor.is_active)
-        
-        # Liên kết Account với Investor
-        investor.investor_profile = investor_obj
-        investor.save()
+        # Tạo investor_profile trước khi tạo Account
+        with transaction.atomic():
+            investor_obj = create_or_get_investor(email, username, True)
+            
+            # Tạo user with investor role và gán investor_profile ngay
+            investor = Account.objects.create_user(
+                email=email,
+                username=username,
+                password=password,
+                role='investor',
+                investor_profile=investor_obj
+            )
 
-        # Cập nhật license nếu có thay đổi
-        try:
-            license_obj = License.objects.get(investor=investor_obj)
-            if not is_permanent and expiry_date:
-                try:
-                    expiry = datetime.now() + timedelta(days=int(expiry_date))
+            # Cập nhật license nếu có thay đổi
+            try:
+                license_obj = License.objects.get(investor=investor_obj)
+                if not is_permanent and expiry:
                     license_obj.expiry_date = expiry
                     license_obj.is_permanent = False
-                    license_obj.save()
-                except (ValueError, TypeError):
-                    logger.error(f"Invalid expiry_date format: {expiry_date}")
-            elif is_permanent:
-                license_obj.is_permanent = True
-                license_obj.expiry_date = None
+                elif is_permanent:
+                    license_obj.is_permanent = True
+                    license_obj.expiry_date = None
                 license_obj.save()
-            license_key = license_obj.key
-        except License.DoesNotExist:
-            # Nếu chưa có license, tạo mới
-            expiry = None
-            if not is_permanent and expiry_date:
-                try:
-                    expiry = datetime.now() + timedelta(days=int(expiry_date))
-                except (ValueError, TypeError):
-                    logger.error(f"Invalid expiry_date format: {expiry_date}")
-            license_obj = investor_obj.generate_license(is_permanent=is_permanent, expiry_date=expiry)
-            license_key = license_obj.key
+                license_key = license_obj.key
+            except License.DoesNotExist:
+                # Nếu chưa có license, tạo mới
+                license_obj = investor_obj.generate_license(is_permanent=is_permanent, expiry_date=expiry)
+                license_key = license_obj.key
 
         return Response({
             "success": True,
@@ -97,7 +98,7 @@ class LicenseManagementView(APIView):
                 "username": investor.username,
                 "license_key": license_key,
                 "is_permanent": is_permanent,
-                "expiry_date": expiry if expiry else "Never"
+                "expiry_date": expiry.strftime('%Y-%m-%d %H:%M:%S') if expiry else "Never"
             }
         }, status=status.HTTP_201_CREATED)
 
@@ -202,4 +203,3 @@ class LicenseManagementView(APIView):
                 "is_permanent": license.is_permanent
             }
         }, status=status.HTTP_200_OK)
-

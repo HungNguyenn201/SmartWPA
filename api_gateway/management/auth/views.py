@@ -8,7 +8,9 @@ from rest_framework.permissions import IsAuthenticated
 from permissions.models import Account
 from datetime import datetime
 from .helpers import get_token_for_user, check_license
+import logging
 
+logger = logging.getLogger(__name__)
 class TokenRefreshView(APIView):
     def post(self, request, format=None):
         refresh_token = request.data.get('refresh')
@@ -125,14 +127,24 @@ class LogoutAPIView(APIView):
                     "error": "Refresh token is required",
                     "code": "REFRESH_TOKEN_REQUIRED"
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
-            token = RefreshToken(refresh_token)
-            token.blacklist() 
+            
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception as token_error:
+                logger.warning(f"Error blacklisting token: {str(token_error)}")
+                return Response({
+                    "success": False,
+                    "error": "Failed to invalidate token",
+                    "code": "TOKEN_BLACKLIST_FAILED"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
             return Response({
                 "success": True,
                 "message": "Logged out successfully"
             }, status=status.HTTP_200_OK)
         except Exception as e:
+            logger.error(f"Logout error: {str(e)}")
             return Response({
                 "success": False,
                 "error": str(e),

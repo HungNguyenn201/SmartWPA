@@ -32,15 +32,7 @@ QUERY_MODE = {
     1: 'Sampled data',
 }
 
-INTERVAL = {
-    '1m': 60000,
-    '5m': 5*60000,
-    '7.5m': 7.5*60000,
-    '10m': 10*60000,
-    '15m': 15*60000,
-    '30m': 30*60000,
-    '1h': 60*60000
-}
+DEFAULT_INTERVAL = '10m'
 
 HEADERS = {
     'Content-Type': 'application/json'

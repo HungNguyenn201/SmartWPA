@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def get_data_smartHis(id_farm, target, time_range):
     try:
-        interval = '15m'
+        interval = DEFAULT_INTERVAL
         if target == "factory":
             df_history = query_data(id_farm, target, time_range, interval, mode="sampled")
         elif target == "turbines":

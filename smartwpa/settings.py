@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'corsheaders',
     
     # Local apps
     'permissions',
@@ -115,7 +117,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'smartwpa.wsgi.application'
-
+AUTH_USER_MODEL = "permissions.Account"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
