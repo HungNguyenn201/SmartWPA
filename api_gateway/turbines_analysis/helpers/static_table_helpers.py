@@ -1,6 +1,11 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
+from ._header import (
+    CLASSIFICATION_SOURCE_FIELD_MAP,
+    HISTORICAL_SOURCE_FIELD_MAP,
+    DEFAULT_TIME_STEP_SECONDS
+)
 
 
 def calculate_statistics_from_dataframe(
@@ -33,7 +38,7 @@ def calculate_statistics_from_dataframe(
                 most_common_diff = time_diffs.mode()[0] if len(time_diffs.mode()) > 0 else pd.Timedelta(seconds=600)
                 time_step_seconds = most_common_diff.total_seconds()
             else:
-                time_step_seconds = 600.0  # Default: 10 min
+                time_step_seconds = DEFAULT_TIME_STEP_SECONDS
             
             if isinstance(min_timestamp, pd.Timestamp):
                 start_date = int(min_timestamp.timestamp() * 1000)
@@ -47,7 +52,7 @@ def calculate_statistics_from_dataframe(
         else:
             start_date = None
             end_date = None
-            time_step_seconds = 600.0
+            time_step_seconds = DEFAULT_TIME_STEP_SECONDS
         
         result_data = {
             "source": source_type,
@@ -78,12 +83,7 @@ def prepare_dataframe_from_classification_points(
         if not classification_points.exists():
             return None
         
-        source_field_map = {
-            'wind_speed': 'wind_speed',
-            'power': 'active_power',
-        }
-        
-        field_name = source_field_map.get(source_type)
+        field_name = CLASSIFICATION_SOURCE_FIELD_MAP.get(source_type)
         if not field_name:
             return None
         
@@ -118,13 +118,7 @@ def prepare_dataframe_from_historical(
         if not historical_data.exists():
             return None
         
-        source_field_map = {
-            'wind_speed': 'wind_speed',
-            'power': 'active_power',
-            'wind_direction': 'wind_dir',
-        }
-        
-        field_name = source_field_map.get(source_type)
+        field_name = HISTORICAL_SOURCE_FIELD_MAP.get(source_type)
         if not field_name:
             return None
         

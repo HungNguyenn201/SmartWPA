@@ -1,6 +1,6 @@
 import pandas as pd
-from estimate import estimate
-from yaw_error import yaw_errors
+from .estimate import estimate
+from .yaw_error import yaw_errors
 
 def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     obj = {}
@@ -61,7 +61,8 @@ def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     obj['TotalCurtailmentPoints'] = len(classified[classified['status'] == 'CURTAILMENT'])
     obj['TimeStep'] = resolution.total_seconds()
     obj['TotalDuration'] = (classified.index.max() - classified.index.min()).total_seconds()
-    obj['DurationWithoutError'] = obj['TotalDuration'] - obj['TimeStep'] * len(classified[classified['status'] == 'MEASUREMENT_ERROR'])
+    stop_mask = classified['status'].isin(['STOP', 'PARTIAL_STOP'])
+    obj['DurationWithoutError'] = obj['TotalDuration'] - obj['TimeStep'] * len(classified[stop_mask])
     
     if 'DIRECTION_WIND' in estimated_data.columns and 'DIRECTION_NACELLE' in estimated_data.columns:
         obj['YawLag'] = yaw_errors(estimated_data)

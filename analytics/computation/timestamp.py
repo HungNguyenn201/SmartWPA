@@ -1,6 +1,6 @@
 import pandas as pd
 
-def get_resolution(data: pd.Dataframe) -> pd.Timedelta:
+def get_resolution(data: pd.DataFrame) -> pd.Timedelta:
     return data.index.to_series().diff().mode().iloc[0]
 
 def rescale_resolution(data: pd.DataFrame, resolution: pd.Timedelta) -> pd.DataFrame:

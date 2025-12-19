@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-def binning(data: pd.Dataframe, bin_width=0.5) -> pd.Dataframe:
+def binning(data: pd.DataFrame, bin_width=0.5) -> pd.DataFrame:
     bins = np.arange(0.25, data['WIND_SPEED'].max() + bin_width, bin_width)
     data['bin'] = pd.cut(
         data['WIND_SPEED'], 

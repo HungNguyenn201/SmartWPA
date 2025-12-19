@@ -2,6 +2,15 @@ import pandas as pd
 import numpy as np
 from scipy.stats import weibull_min
 from typing import Dict, Optional, Tuple
+from ._header import (
+    MIN_BINS,
+    MAX_BINS,
+    DAY_START_HOUR_ALT,
+    DAY_END_HOUR_ALT,
+    PERIOD_NAMES,
+    SEASON_MAP,
+    SEASON_NAMES
+)
 
 
 def prepare_bins(values: np.ndarray, bin_width: float) -> np.ndarray:
@@ -19,16 +28,14 @@ def prepare_bins(values: np.ndarray, bin_width: float) -> np.ndarray:
     if vmax <= 0:
         vmax = bin_width * 10
     
-    min_bins = 30
-    max_bins = 100
     adjusted_bin_width = bin_width
     
     bins_count = int((vmax - vmin) / bin_width) + 2
     
-    if bins_count < min_bins:
-        adjusted_bin_width = (vmax - vmin) / (min_bins - 2) if min_bins > 2 else bin_width
-    elif bins_count > max_bins:
-        adjusted_bin_width = (vmax - vmin) / (max_bins - 2) if max_bins > 2 else bin_width
+    if bins_count < MIN_BINS:
+        adjusted_bin_width = (vmax - vmin) / (MIN_BINS - 2) if MIN_BINS > 2 else bin_width
+    elif bins_count > MAX_BINS:
+        adjusted_bin_width = (vmax - vmin) / (MAX_BINS - 2) if MAX_BINS > 2 else bin_width
     
     if adjusted_bin_width <= 0:
         adjusted_bin_width = bin_width
@@ -372,8 +379,8 @@ def calculate_day_night_distribution(
                 valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'])
         
         valid_df['hour'] = valid_df['timestamp'].dt.hour
-        valid_df['period'] = 'Night'
-        valid_df.loc[(valid_df['hour'] >= 6) & (valid_df['hour'] < 18), 'period'] = 'Day'
+        valid_df['period'] = PERIOD_NAMES['Night']
+        valid_df.loc[(valid_df['hour'] >= DAY_START_HOUR_ALT) & (valid_df['hour'] < DAY_END_HOUR_ALT), 'period'] = PERIOD_NAMES['Day']
         
         # Prepare bins once using all data
         wind_speeds = valid_df['wind_speed'].values
@@ -385,7 +392,7 @@ def calculate_day_night_distribution(
         day_night_data = {}
         day_night_speed_roses = {}
         
-        for period in ['Day', 'Night']:
+        for period in PERIOD_NAMES.values():
             period_df = valid_df[valid_df['period'] == period]
             if len(period_df) == 0:
                 continue
@@ -479,12 +486,7 @@ def calculate_seasonal_distribution(
                 valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'])
         
         valid_df['month'] = valid_df['timestamp'].dt.month
-        season_map = {
-            1: 'Winter', 2: 'Winter', 3: 'Spring', 4: 'Spring',
-            5: 'Spring', 6: 'Summer', 7: 'Summer', 8: 'Summer',
-            9: 'Fall', 10: 'Fall', 11: 'Fall', 12: 'Winter'
-        }
-        valid_df['season'] = valid_df['month'].map(season_map)
+        valid_df['season'] = valid_df['month'].map(SEASON_MAP)
         
         # Prepare bins once using all data
         wind_speeds = valid_df['wind_speed'].values
@@ -496,7 +498,7 @@ def calculate_seasonal_distribution(
         seasonal_data = {}
         seasonal_speed_roses = {}
         
-        for season in ['Winter', 'Spring', 'Summer', 'Fall']:
+        for season in SEASON_NAMES:
             season_df = valid_df[valid_df['season'] == season]
             if len(season_df) == 0:
                 continue

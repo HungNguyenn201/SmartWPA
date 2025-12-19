@@ -19,7 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+Data/
 # Virtual Environment
 venv/
 env/
@@ -85,4 +85,4 @@ celerybeat.pid
 # README.md
 # README.rst
 # README.txt
-
+test.py

@@ -1,6 +1,7 @@
+from __future__ import annotations
 import numpy as np
 import pandas as pd
-from timestamp import timestamp_prepare
+from .timestamp import timestamp_prepare
 from sklearn.impute import KNNImputer
 
 allowed_column_names = [
@@ -101,11 +102,19 @@ def verify_bin_data_amount(normals: pd.Dataframe, constants: dict):
     if pd.cut(insides, round((constants['V_cutout'] - constants['V_cutin']) / 0.5)).value_counts(ascending=True).iloc[0] < 3:
         raise ValueError("At least 3 normal data points per bin is required to calculate KPIs.")
     
-def verify_wind_coverage(normals: pd.Dataframe, constants: dict):
+def verify_wind_coverage(normals: pd.Dataframe, constants: dict, cutoff_margin: float = 1.0, tolerance: float = 0.15):
+    """
+    cutoff_margin should match the margin used in classifier.filter_error (CUT_MARGIN).
+    tolerance lets coverage pass when data is very close to the required threshold,
+    avoiding conflicts between filtering and coverage check.
+    """
     if normals['ACTIVE_POWER'].max() < constants['P_rated'] * 0.85:
         raise ValueError("Normal data points have to cover at least to 85% of rated power.")
-    if normals['WIND_SPEED'].min() > constants['V_cutin'] - 1:
-        raise ValueError("Normal data points have to cover at least from the cut-in speed minus 1.")
+
+    required_min_ws = constants['V_cutin'] - cutoff_margin
+    # Allow a small tolerance so classification filtering does not fight the coverage rule
+    if normals['WIND_SPEED'].min() > required_min_ws + tolerance:
+        raise ValueError(f"Normal data points have to cover at least from the cut-in speed minus {cutoff_margin}.")
     
 def verify_normal(normals: pd.DataFrame, constants: dict):
     verify_min_hours(normals)

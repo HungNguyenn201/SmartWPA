@@ -1,5 +1,5 @@
 import pandas as pd
-from func_est import power_est
+from .func_est import power_est
 
 def fill(data: pd.DataFrame) -> pd.DataFrame:
     data[['WIND_SPEED', 'ACTIVE_POWER']] = data[['WIND_SPEED', 'ACTIVE_POWER']].interpolate(method='time')

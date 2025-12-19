@@ -1,6 +1,13 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
+from ._header import (
+    MONTH_NAMES,
+    SEASON_INDEX_MAP,
+    SEASON_NAMES_BY_INDEX,
+    CLASSIFICATION_SOURCE_FIELD_MAP,
+    HISTORICAL_SOURCE_FIELD_MAP
+)
 
 
 def prepare_combined_dataframe_from_sources(
@@ -16,12 +23,7 @@ def prepare_combined_dataframe_from_sources(
                 continue
             
             data = []
-            source_field_map = {
-                'wind_speed': 'wind_speed',
-                'power': 'active_power',
-            }
-            
-            field_name = source_field_map.get(source)
+            field_name = CLASSIFICATION_SOURCE_FIELD_MAP.get(source)
             if not field_name:
                 continue
             
@@ -49,14 +51,7 @@ def prepare_combined_dataframe_from_sources(
                 continue
             
             data = []
-            source_field_map = {
-                'wind_direction': 'wind_dir',
-                'temperature': 'air_temp',
-                'pressure': 'pressure',
-                'humidity': 'hud',
-            }
-            
-            field_name = source_field_map.get(source)
+            field_name = HISTORICAL_SOURCE_FIELD_MAP.get(source)
             if not field_name:
                 continue
             
@@ -183,14 +178,8 @@ def calculate_monthly_profile(df: pd.DataFrame, sources: List[str]) -> List[Dict
         df['month'] = df['timestamp'].dt.month
         result_data = []
         
-        month_names = {
-            1: 'January', 2: 'February', 3: 'March', 4: 'April',
-            5: 'May', 6: 'June', 7: 'July', 8: 'August',
-            9: 'September', 10: 'October', 11: 'November', 12: 'December'
-        }
-        
         for month in range(1, 13):
-            month_data = {'month': month, 'label': month_names[month]}
+            month_data = {'month': month, 'label': MONTH_NAMES[month]}
             month_df = df[df['month'] == month]
             
             if month_df.empty:
@@ -221,19 +210,12 @@ def calculate_seasonal_profile(df: pd.DataFrame, sources: List[str]) -> List[Dic
             df['timestamp'] = pd.to_datetime(df['timestamp'])
         
         df['month'] = df['timestamp'].dt.month
-        season_mapping = {
-            1: 3, 2: 3, 3: 0, 4: 0, 5: 0, 6: 1,
-            7: 1, 8: 1, 9: 2, 10: 2, 11: 2, 12: 3
-        }
-        df['season'] = df['month'].map(season_mapping)
+        df['season'] = df['month'].map(SEASON_INDEX_MAP)
         
         result_data = []
-        season_names = {
-            0: 'Spring', 1: 'Summer', 2: 'Fall', 3: 'Winter'
-        }
         
         for season in range(4):
-            season_data = {'season': season, 'label': season_names[season]}
+            season_data = {'season': season, 'label': SEASON_NAMES_BY_INDEX[season]}
             season_df = df[df['season'] == season]
             
             if season_df.empty:

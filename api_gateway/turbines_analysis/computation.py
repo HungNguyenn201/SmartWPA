@@ -10,6 +10,7 @@ from api_gateway.management.acquisition.helpers import check_object_permission
 from api_gateway.turbines_analysis.helpers.computation_helper import (
     get_turbine_constants,
     prepare_dataframe_from_factory_historical,
+    prepare_dataframe_from_files,
     validate_time_range,
     save_computation_results,
     format_computation_output
@@ -85,7 +86,14 @@ class ComputationAPIView(APIView):
                     "code": "MISSING_CONSTANTS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            df = prepare_dataframe_from_factory_historical(turbine, start_time, end_time)
+            # Chọn nguồn dữ liệu: 'db' (mặc định) hoặc 'file'
+            data_source = request.data.get('data_source', 'db')
+            data_dir = request.data.get('data_dir', 'Data')
+            
+            if data_source == 'file':
+                df = prepare_dataframe_from_files(turbine, start_time, end_time, data_dir)
+            else:
+                df = prepare_dataframe_from_factory_historical(turbine, start_time, end_time)
             
             if df is None or df.empty:
                 return Response({

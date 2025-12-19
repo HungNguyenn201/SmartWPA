@@ -1,13 +1,13 @@
 import pandas as pd
-from classifier import classify, classification_to_obj
-from curve_est import get_all_power_curves
-from weibull import weibull
-from indicators import indicators
-from normalize import list_len, check_column_names, preprocess, verify_normal, normalize_data
-from density import air_density
-from bins import binning
-from capacity_factor import capacity_factor
-from rayleighs import rayleighs_aep
+from .classifier import classify, classification_to_obj
+from .curve_est import get_all_power_curves
+from .weibull import weibull
+from .indicators import indicators
+from .normalize import list_len, check_column_names, preprocess, verify_normal, normalize_data
+from .density import air_density
+from .bins import binning
+from .capacity_factor import capacity_factor
+from .rayleighs import rayleighs_aep
 import concurrent.futures
 import os
 
@@ -17,7 +17,7 @@ def start_time(data: pd.DataFrame) -> int:
 def end_time(data: pd.DataFrame) -> int:
     return data.iloc[-1].name.timestamp()
 
-def process(data: pd.Dataframe, constants: dict) -> dict:
+def process(data: pd.DataFrame, constants: dict) -> dict:
     obj = {}
         
     classified = classify(data, constants)
@@ -32,7 +32,7 @@ def process(data: pd.Dataframe, constants: dict) -> dict:
     obj['power_curves'] = power_curves
 
     weibulls = weibull(normals)
-
+    obj['weibull'] = weibulls
     obj['indicators'] = {}
     obj['indicators'].update(rayleighs_aep(power_curves['global'], constants, weibulls))
     obj['indicators'].update(indicators(classified, constants))
@@ -65,7 +65,7 @@ def check_constants(constants: dict):
             raise ValueError(f"Constant {constant} not found.")
 
 
-def check_data_integrity(constants: dict, data: pd.Dataframe = None, names: list[str] = None, lists: list[list[any]] = None):
+def check_data_integrity(constants: dict, data: pd.DataFrame = None, names: list[str] = None, lists: list[list[any]] = None):
     check_constants(constants)
     if (names != None):
         if not list_len(lists):
