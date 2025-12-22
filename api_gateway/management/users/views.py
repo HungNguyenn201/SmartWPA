@@ -6,7 +6,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from permissions.models import Account, License
 from permissions.views import CanDeleteUser
-from facilities.models import Farm, Turbines
+from facilities.models import Farm, Turbines, Investor
 from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import Q
@@ -56,6 +56,17 @@ class AdminCreateUserAPIView(APIView):
                     "code": validation_errors[0]["code"]
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            # Validate investor_id nếu có
+            if investor_id is not None:
+                try:
+                    investor_id = int(investor_id)
+                except (ValueError, TypeError):
+                    return Response({
+                        "success": False,
+                        "error": "Investor ID must be a valid integer",
+                        "code": "INVALID_INVESTOR_ID"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
             investor = None
             farm = None
                 
@@ -87,20 +98,34 @@ class AdminCreateUserAPIView(APIView):
             if role == 'investor':
                 # Tạo investor và license trong một transaction
                 with transaction.atomic():
-                    # Tạo investor mới
+                    # Xử lý liên kết với Investor object TRƯỚC khi tạo user
+                    investor_obj = None
+                    if investor_id:
+                        # Ưu tiên: Nếu có investor_id, lấy Investor object theo ID
+                        try:
+                            investor_obj = Investor.objects.get(id=investor_id)
+                            # Đảm bảo có license
+                            investor_obj.generate_license()
+                        except Investor.DoesNotExist:
+                            return Response({
+                                "success": False,
+                                "error": "Investor does not exist",
+                                "code": "INVESTOR_NOT_FOUND"
+                            }, status=status.HTTP_404_NOT_FOUND)
+                    else:
+                        # Fallback: Nếu không có investor_id, tìm hoặc tạo theo email
+                        # Tạo user tạm để lấy is_active, sau đó sẽ cập nhật
+                        investor_obj = create_or_get_investor(email, username, True)
+                    
+                    # Tạo user mới với investor_profile đã được gán ngay từ đầu
                     user = Account.objects.create_user(
                         username=username,
                         email=email,
                         password=password,
                         role='investor',
-                        manager=request.user  # Thêm manager_id cho investor user
+                        manager=request.user,  # Thêm manager_id cho investor user
+                        investor_profile=investor_obj  # Gán investor_profile ngay khi tạo
                     )
-                    # Tìm hoặc tạo đối tượng Investor tương ứng
-                    investor_obj = create_or_get_investor(email, username, user.is_active)
-                    
-                    # Liên kết Account với Investor
-                    user.investor_profile = investor_obj
-                    user.save()
             else:
                 # Tạo user mới với các thông tin đã validate
                 user = Account.objects.create_user(

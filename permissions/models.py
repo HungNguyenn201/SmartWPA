@@ -4,6 +4,7 @@ from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 from facilities.models import Farm, Investor
 from datetime import datetime
+from django.utils import timezone
 # Create your models here.
 
 
@@ -129,5 +130,5 @@ class License(models.Model):
         """Kiểm tra license còn hạn không"""
         if self.is_permanent:
             return True
-        return self.expiry_date and self.expiry_date > datetime.now()
+        return self.expiry_date and self.expiry_date > timezone.now()
 
