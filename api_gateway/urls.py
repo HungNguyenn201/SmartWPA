@@ -48,6 +48,7 @@ from api_gateway.turbines_analysis.static_table import StaticTableAPIView
 from api_gateway.turbines_analysis.time_profile import TimeProfileAPIView
 from api_gateway.turbines_analysis.weibull import TurbineWeibullAPIView, FarmWeibullAPIView
 from api_gateway.turbines_analysis.power_curve import TurbinePowerCurveAPIView, FarmPowerCurveAPIView
+from api_gateway.turbines_analysis.computation import ComputationAPIView
 
 urlpatterns = [
     # Authentication endpoints
@@ -98,6 +99,7 @@ urlpatterns = [
     path('api/his-points/<int:his_point_id>/delete/', HISPointDeleteAPIView.as_view(), name='his-point-delete'),
     
     # Turbine analysis endpoints
+    path('api/turbines/<int:turbine_id>/computation/', ComputationAPIView.as_view(), name='turbine-computation'),
     path('api/turbines/<int:turbine_id>/classification-rate/', ClassificationRateAPIView.as_view(), name='classification-rate'),
     path('api/turbines/<int:turbine_id>/distribution/', DistributionAPIView.as_view(), name='distribution'),
     path('api/turbines/<int:turbine_id>/indicators/', TurbineIndicatorAPIView.as_view(), name='turbine-indicators'),

@@ -24,6 +24,7 @@ from ._header import (
     REQUIRED_FILES,
     OPTIONAL_FILES,
     REQUIRED_TURBINE_CONSTANTS,
+    DEFAULT_TURBINE_CONSTANTS,
     DEFAULT_DATA_DIR
 )
 
@@ -32,13 +33,27 @@ logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 def get_turbine_constants(turbine: Turbines, constants_override: Optional[Dict] = None) -> Dict:
+    # Nếu có constants_override và đủ các constants cần thiết, dùng override
     if constants_override:
         if all(key in constants_override for key in REQUIRED_TURBINE_CONSTANTS):
             return constants_override
+        else:
+            # Nếu override không đủ, merge với default
+            constants = DEFAULT_TURBINE_CONSTANTS.copy()
+            constants.update(constants_override)
+            # Kiểm tra lại xem đã đủ chưa
+            if all(key in constants for key in REQUIRED_TURBINE_CONSTANTS):
+                return constants
     
+    # Mặc định dùng constants từ _header.py
+    if all(key in DEFAULT_TURBINE_CONSTANTS for key in REQUIRED_TURBINE_CONSTANTS):
+        return DEFAULT_TURBINE_CONSTANTS.copy()
+    
+    # Nếu không có constants mặc định, báo lỗi
     required_str = ', '.join(REQUIRED_TURBINE_CONSTANTS)
     raise ValueError(
-        f"Turbine constants must be provided. Required: {required_str}"
+        f"Turbine constants must be configured. Required: {required_str}. "
+        f"Please configure DEFAULT_TURBINE_CONSTANTS in _header.py or provide constants in request."
     )
 
 
@@ -247,6 +262,63 @@ def validate_time_range(start_time: int, end_time: int) -> Tuple[bool, Optional[
         return False, "Time range must be at least 10 minutes"
     
     return True, None
+
+
+def load_turbine_data(
+    turbine: Turbines,
+    start_time: int,
+    end_time: int,
+    preferred_source: str = 'db'
+) -> Tuple[Optional[pd.DataFrame], str, Dict[str, str]]:
+    """
+    Load turbine data từ database hoặc file với fallback logic.
+    
+    Args:
+        turbine: Turbine object
+        start_time: Start time in milliseconds
+        end_time: End time in milliseconds
+        preferred_source: 'db' hoặc 'file' - nguồn ưu tiên
+    
+    Returns:
+        Tuple of (DataFrame, data_source_used, error_info)
+        - DataFrame: DataFrame với dữ liệu hoặc None nếu không có
+        - data_source_used: 'db' hoặc 'file' - nguồn đã sử dụng
+        - error_info: Dict chứa thông tin lỗi từ các nguồn đã thử
+    """
+    error_info = {}
+    df = None
+    data_source_used = None
+    
+    # Thử nguồn ưu tiên trước
+    if preferred_source == 'file':
+        logger.debug(f"Trying to load data from file for turbine {turbine.id}")
+        df = prepare_dataframe_from_files(turbine, start_time, end_time, DEFAULT_DATA_DIR)
+        if df is not None and not df.empty:
+            data_source_used = 'file'
+        else:
+            error_info['file'] = "No data found in files or files do not exist"
+            logger.warning(f"Failed to load data from file for turbine {turbine.id}: {error_info['file']}")
+    else:  # preferred_source == 'db'
+        logger.debug(f"Trying to load data from database for turbine {turbine.id}")
+        df = prepare_dataframe_from_factory_historical(turbine, start_time, end_time)
+        if df is not None and not df.empty:
+            data_source_used = 'db'
+        else:
+            error_info['db'] = "No data found in database for the specified time range"
+            logger.warning(f"Failed to load data from database for turbine {turbine.id}: {error_info['db']}")
+            
+            # Nếu preferred là 'db' và không có dữ liệu, tự động thử 'file'
+            if preferred_source == 'db':
+                logger.debug(f"Attempting fallback to file source for turbine {turbine.id}")
+                df_file = prepare_dataframe_from_files(turbine, start_time, end_time, DEFAULT_DATA_DIR)
+                if df_file is not None and not df_file.empty:
+                    df = df_file
+                    data_source_used = 'file'
+                else:
+                    error_info['file'] = "No data found in files or files do not exist"
+                    logger.warning(f"Fallback to file also failed for turbine {turbine.id}: {error_info['file']}")
+    
+    return df, data_source_used, error_info
 
 
 @transaction.atomic
@@ -578,6 +650,32 @@ def save_yaw_error(computation: Computation, yaw_lag: Dict):
         )
 
 
+def replace_nan_with_none(obj):
+    """
+    Đệ quy thay thế NaN bằng None trong dict/list để JSON serializable.
+    """
+    if isinstance(obj, dict):
+        return {k: replace_nan_with_none(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [replace_nan_with_none(item) for item in obj]
+    elif isinstance(obj, (pd.DataFrame, pd.Series)):
+        # Convert DataFrame/Series to dict/list và xử lý NaN
+        if isinstance(obj, pd.DataFrame):
+            return {col: replace_nan_with_none(obj[col].tolist()) for col in obj.columns}
+        else:
+            return replace_nan_with_none(obj.tolist())
+    elif isinstance(obj, (int, float, np.number)):
+        return None if pd.isna(obj) else (int(obj) if isinstance(obj, (np.integer, np.int64)) else float(obj))
+    elif hasattr(obj, 'item'):
+        try:
+            val = obj.item()
+            return None if pd.isna(val) else val
+        except:
+            return obj
+    else:
+        return obj
+
+
 def format_computation_output(computation_result: Dict) -> Dict:
     start_time = computation_result.get('start_time')
     end_time = computation_result.get('end_time')
@@ -594,5 +692,8 @@ def format_computation_output(computation_result: Dict) -> Dict:
         'classification': computation_result.get('classification', {}),
         'indicators': computation_result.get('indicators', {})
     }
+    
+    # Xử lý NaN để JSON serializable
+    output = replace_nan_with_none(output)
     
     return output
