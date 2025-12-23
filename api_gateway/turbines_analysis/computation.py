@@ -118,9 +118,9 @@ class ComputationAPIView(APIView):
                     "code": "COMPUTATION_ERROR"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Save results
+            # Save results - lưu với từng computation type riêng biệt
             try:
-                computation = save_computation_results(
+                saved_computations = save_computation_results(
                     turbine, turbine.farm, start_time, end_time, computation_result
                 )
             except Exception as e:
@@ -133,13 +133,32 @@ class ComputationAPIView(APIView):
             
             # Format output
             output = format_computation_output(computation_result)
-            output.update({
-                'computation_id': computation.id,
-                'data_source_used': data_source_used,
-                'data_points_count': len(df)
-            })
+            output['data_source_used'] = data_source_used
+            output['data_points_count'] = len(df)
             
-            return Response({"success": True, "data": output}, status=status.HTTP_200_OK)
+            # Thêm computation IDs cho từng type
+            output['computation_ids'] = {
+                comp_type: comp.id 
+                for comp_type, comp in saved_computations.items()
+            }
+            
+            # Log thành công
+            computation_types = ', '.join(saved_computations.keys())
+            logger.warning(
+                f"Computation completed successfully for turbine {turbine_id}. "
+                f"Types saved: {computation_types}. "
+                f"Data source: {data_source_used}, Data points: {len(df)}"
+            )
+            
+            # Tạo message cho frontend
+            computation_count = len(saved_computations)
+            message = f"Computation completed successfully. {computation_count} computation type(s) saved: {computation_types}"
+            
+            return Response({
+                "success": True,
+                "message": message,
+                "data": output
+            }, status=status.HTTP_200_OK)
             
         except Exception as e:
             logger.error(f"Unexpected error in computation API: {str(e)}", exc_info=True)

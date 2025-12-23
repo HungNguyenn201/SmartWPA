@@ -321,6 +321,30 @@ def load_turbine_data(
     return df, data_source_used, error_info
 
 
+def _get_or_create_computation(
+    turbine: Turbines,
+    farm: Farm,
+    computation_type: str,
+    start_time: int,
+    end_time: int
+) -> Computation:
+    """
+    Helper function để tạo hoặc lấy computation với type cụ thể.
+    """
+    computation, _ = Computation.objects.update_or_create(
+        turbine=turbine,
+        farm=farm,
+        computation_type=computation_type,
+        start_time=start_time,
+        end_time=end_time,
+        is_latest=True,
+        defaults={
+            'created_at': timezone.now()
+        }
+    )
+    return computation
+
+
 @transaction.atomic
 def save_computation_results(
     turbine: Turbines,
@@ -328,9 +352,20 @@ def save_computation_results(
     start_time: int,
     end_time: int,
     computation_result: Dict
-) -> Computation:
-    computation_type = 'wpa'
+) -> Dict[str, Computation]:
+    """
+    Lưu computation results vào database với từng computation type riêng biệt.
     
+    Returns:
+        Dict với keys là computation_type và values là Computation objects đã lưu.
+        Ví dụ: {
+            'classification': Computation(...),
+            'power_curve': Computation(...),
+            'weibull': Computation(...),
+            'indicators': Computation(...),
+            'yaw_error': Computation(...)  # nếu có
+        }
+    """
     result_start_time = computation_result.get('start_time')
     result_end_time = computation_result.get('end_time')
     
@@ -342,34 +377,50 @@ def save_computation_results(
     save_start_time = result_start_time if result_start_time else start_time
     save_end_time = result_end_time if result_end_time else end_time
     
-    computation, _ = Computation.objects.update_or_create(
-        turbine=turbine,
-        farm=farm,
-        computation_type=computation_type,
-        start_time=save_start_time,
-        end_time=save_end_time,
-        is_latest=True,
-        defaults={
-            'created_at': timezone.now()
-        }
-    )
+    saved_computations = {}
     
-    if 'power_curves' in computation_result:
-        save_power_curves(computation, computation_result['power_curves'])
-    
+    # Lưu Classification computation
     if 'classification' in computation_result:
-        save_classification(computation, computation_result['classification'])
+        classification_computation = _get_or_create_computation(
+            turbine, farm, 'classification', save_start_time, save_end_time
+        )
+        save_classification(classification_computation, computation_result['classification'])
+        saved_computations['classification'] = classification_computation
     
+    # Lưu Power Curve computation
+    if 'power_curves' in computation_result:
+        power_curve_computation = _get_or_create_computation(
+            turbine, farm, 'power_curve', save_start_time, save_end_time
+        )
+        save_power_curves(power_curve_computation, computation_result['power_curves'])
+        saved_computations['power_curve'] = power_curve_computation
+    
+    # Lưu Weibull computation
     if 'weibull' in computation_result:
-        save_weibull(computation, computation_result['weibull'])
+        weibull_computation = _get_or_create_computation(
+            turbine, farm, 'weibull', save_start_time, save_end_time
+        )
+        save_weibull(weibull_computation, computation_result['weibull'])
+        saved_computations['weibull'] = weibull_computation
     
+    # Lưu Indicators computation
     indicators = computation_result.get('indicators', {})
     if indicators:
-        save_indicators(computation, indicators)
+        indicators_computation = _get_or_create_computation(
+            turbine, farm, 'indicators', save_start_time, save_end_time
+        )
+        save_indicators(indicators_computation, indicators)
+        saved_computations['indicators'] = indicators_computation
+        
+        # Lưu Yaw Error computation (nếu có)
         if 'YawLag' in indicators:
-            save_yaw_error(computation, indicators['YawLag'])
+            yaw_error_computation = _get_or_create_computation(
+                turbine, farm, 'yaw_error', save_start_time, save_end_time
+            )
+            save_yaw_error(yaw_error_computation, indicators['YawLag'])
+            saved_computations['yaw_error'] = yaw_error_computation
     
-    return computation
+    return saved_computations
 
 
 def save_power_curves(computation: Computation, power_curves: Dict):
