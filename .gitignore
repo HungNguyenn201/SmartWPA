@@ -86,3 +86,4 @@ celerybeat.pid
 # README.rst
 # README.txt
 test.py
+check.py

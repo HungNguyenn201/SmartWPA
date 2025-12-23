@@ -13,7 +13,8 @@ from api_gateway.management.acquisition.helpers import check_object_permission
 from api_gateway.turbines_analysis.helpers.static_table_helpers import (
     calculate_statistics_from_dataframe,
     prepare_dataframe_from_classification_points,
-    prepare_dataframe_from_historical
+    prepare_dataframe_from_historical,
+    prepare_dataframe_from_direction_file
 )
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
@@ -73,7 +74,7 @@ class StaticTableAPIView(APIView):
                 except ValueError:
                     return Response({
                         "success": False,
-                        "error": "start_time must be an integer (Unix timestamp in milliseconds)",
+                        "error": "start_time must be an integer",
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
@@ -83,17 +84,14 @@ class StaticTableAPIView(APIView):
                 except ValueError:
                     return Response({
                         "success": False,
-                        "error": "end_time must be an integer (Unix timestamp in milliseconds)",
+                        "error": "end_time must be an integer",
                         "code": "INVALID_PARAMETERS"
                     }, status=status.HTTP_400_BAD_REQUEST)
             
             all_results = {}
             for source_type in sources:
                 result = self._calculate_statistics(
-                    turbine,
-                    start_time,
-                    end_time,
-                    source_type
+                    turbine, start_time, end_time, source_type
                 )
                 
                 if isinstance(result, Response):
@@ -115,6 +113,7 @@ class StaticTableAPIView(APIView):
             })
         
         except Exception as e:
+            logger.error(f"Error in StaticTableAPIView.get: {str(e)}", exc_info=True)
             return Response({
                 "success": False,
                 "error": "An unexpected error occurred",
@@ -144,7 +143,6 @@ class StaticTableAPIView(APIView):
                     computation = computation_query.order_by('-end_time').first()
                 
                 if not computation:
-                    logger.warning(f"No classification computation found for turbine {turbine.id} for source_type {source_type}")
                     return Response({
                         "success": False,
                         "error": f"No classification computation found for this turbine",
@@ -193,9 +191,16 @@ class StaticTableAPIView(APIView):
                     historical_data,
                     source_type
                 )
+                
+                if df is None or df.empty:
+                    try:
+                        df = prepare_dataframe_from_direction_file(
+                            turbine, start_time, end_time
+                        )
+                    except Exception as file_error:
+                        logger.error(f"Error loading wind_direction from file for turbine {turbine.id}: {str(file_error)}", exc_info=True)
             
             if df is None or df.empty:
-                logger.warning(f"No {source_type} data found for turbine {turbine.id} in time range {start_time}-{end_time}")
                 return Response({
                     "success": False,
                     "error": f"No {source_type} data found for this turbine in specified time range",
@@ -203,9 +208,7 @@ class StaticTableAPIView(APIView):
                 }, status=status.HTTP_404_NOT_FOUND)
             
             result_data = calculate_statistics_from_dataframe(
-                df,
-                'value',
-                source_type
+                df, 'value', source_type
             )
             
             if not result_data:

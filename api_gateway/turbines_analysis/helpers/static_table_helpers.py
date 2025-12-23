@@ -1,10 +1,18 @@
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from typing import Dict, Optional
 from ._header import (
     CLASSIFICATION_SOURCE_FIELD_MAP,
     HISTORICAL_SOURCE_FIELD_MAP,
-    DEFAULT_TIME_STEP_SECONDS
+    DEFAULT_TIME_STEP_SECONDS,
+    DEFAULT_DATA_DIR,
+    CSV_SEPARATOR,
+    CSV_ENCODING,
+    CSV_DATETIME_FORMAT,
+    CSV_DATETIME_DAYFIRST,
+    FIELD_MAPPING,
+    convert_timestamp_to_datetime
 )
 
 
@@ -25,7 +33,6 @@ def calculate_statistics_from_dataframe(
         
         total_records = len(df)
         valid_records = len(clean_df)
-        
         values = clean_df[value_column].values
         
         if 'timestamp' in clean_df.columns:
@@ -54,7 +61,7 @@ def calculate_statistics_from_dataframe(
             end_date = None
             time_step_seconds = DEFAULT_TIME_STEP_SECONDS
         
-        result_data = {
+        return {
             "source": source_type,
             "type": source_type,
             "statistics": {
@@ -69,8 +76,6 @@ def calculate_statistics_from_dataframe(
                 "time_step": float(time_step_seconds)
             }
         }
-        
-        return result_data
     except Exception:
         return None
 
@@ -93,10 +98,10 @@ def prepare_dataframe_from_classification_points(
             if value is None or np.isnan(value) or np.isinf(value):
                 continue
             
-            from ._header import convert_timestamp_to_datetime
             timestamp_dt = convert_timestamp_to_datetime(point.timestamp)
             if timestamp_dt is None:
                 continue
+            
             data.append({
                 'timestamp': timestamp_dt,
                 'value': float(value)
@@ -106,9 +111,7 @@ def prepare_dataframe_from_classification_points(
             return None
         
         df = pd.DataFrame(data)
-        df = df.sort_values('timestamp')
-        
-        return df if not df.empty else None
+        return df.sort_values('timestamp') if not df.empty else None
     except Exception:
         return None
 
@@ -131,9 +134,8 @@ def prepare_dataframe_from_historical(
             if value is None or np.isnan(value) or np.isinf(value):
                 continue
             
-            timestamp_dt = pd.to_datetime(hist.time_stamp)
             data.append({
-                'timestamp': timestamp_dt,
+                'timestamp': pd.to_datetime(hist.time_stamp),
                 'value': float(value)
             })
         
@@ -141,9 +143,55 @@ def prepare_dataframe_from_historical(
             return None
         
         df = pd.DataFrame(data)
-        df = df.sort_values('timestamp')
-        
-        return df if not df.empty else None
+        return df.sort_values('timestamp') if not df.empty else None
     except Exception:
         return None
 
+
+def prepare_dataframe_from_direction_file(
+    turbine,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None
+) -> Optional[pd.DataFrame]:
+    try:
+        farm_id = turbine.farm.id
+        turbine_id = turbine.id
+        data_path = Path(DEFAULT_DATA_DIR) / f"Farm{farm_id}" / f"WT{turbine_id}"
+        file_path = data_path / "DIRECTION_WIND.csv"
+        
+        if not file_path.exists():
+            return None
+        
+        df = pd.read_csv(file_path, sep=CSV_SEPARATOR, encoding=CSV_ENCODING)
+        
+        if df.empty:
+            return None
+        
+        df['DATE_TIME'] = pd.to_datetime(df['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
+        
+        direction_column = FIELD_MAPPING.get('DIRECTION_WIND.csv', 'DIRECTION_WIND')
+        if direction_column not in df.columns:
+            direction_column = df.columns[1]
+        
+        df = df.rename(columns={'DATE_TIME': 'timestamp', direction_column: 'value'})
+        
+        if start_time and end_time:
+            start_dt = pd.to_datetime(start_time, unit='ms')
+            end_dt = pd.to_datetime(end_time, unit='ms')
+            df = df[(df['timestamp'] >= start_dt) & (df['timestamp'] <= end_dt)]
+        
+        if df.empty:
+            return None
+        
+        df = df[['timestamp', 'value']]
+        df = df.dropna(subset=['value'])
+        df = df[~df['value'].isin([np.inf, -np.inf])]
+        df = df.sort_values('timestamp')
+        
+        return df if not df.empty else None
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger('api_gateway.turbines_analysis')
+        logger.error(f"Error in prepare_dataframe_from_direction_file for turbine {turbine.id}: {str(e)}", exc_info=True)
+        return None
