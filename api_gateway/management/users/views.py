@@ -65,7 +65,7 @@ class AdminCreateUserAPIView(APIView):
                         "success": False,
                         "error": "Investor ID must be a valid integer",
                         "code": "INVALID_INVESTOR_ID"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             investor = None
             farm = None

@@ -518,15 +518,27 @@ def save_classification(computation: Computation, classification: Dict):
                                     continue
                                 
                                 if isinstance(idx, pd.Timestamp):
+                                    # Pandas Timestamp - convert to milliseconds
                                     timestamp_ms = int(idx.timestamp() * 1000)
                                 elif isinstance(idx, (int, float)):
-                                    if idx > 1e12:
+                                    # Handle different timestamp units
+                                    if idx > 1e15:
+                                        # Nanoseconds (from pandas DatetimeIndex.astype(int))
+                                        timestamp_ms = int(idx / 1e6)
+                                    elif idx > 1e13:
+                                        # Microseconds
+                                        timestamp_ms = int(idx / 1e3)
+                                    elif idx > 1e12:
+                                        # Already milliseconds
                                         timestamp_ms = int(idx)
                                     elif idx > 1e9:
+                                        # Seconds (Unix timestamp)
                                         timestamp_ms = int(idx * 1000)
                                     else:
+                                        # Try to parse as datetime string or other format
                                         timestamp_ms = int(pd.to_datetime(idx).timestamp() * 1000)
                                 else:
+                                    # Other types - try to convert to datetime
                                     timestamp_ms = int(pd.to_datetime(idx).timestamp() * 1000)
                                 
                                 if timestamp_ms:

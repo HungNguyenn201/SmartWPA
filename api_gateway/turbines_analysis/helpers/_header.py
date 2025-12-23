@@ -179,3 +179,46 @@ HISTORICAL_SOURCE_FIELD_MAP = {
 
 # Default time step in seconds (10 minutes)
 DEFAULT_TIME_STEP_SECONDS = 600.0
+
+# ============================================================================
+# Timestamp Conversion Utility
+# ============================================================================
+
+def convert_timestamp_to_datetime(timestamp_val):
+    """
+    Convert timestamp to pandas datetime, handling different units automatically.
+    
+    Args:
+        timestamp_val: Timestamp value (could be nanoseconds, microseconds, milliseconds, or seconds)
+    
+    Returns:
+        pandas.Timestamp or None if conversion fails
+    """
+    import pandas as pd
+    
+    if timestamp_val is None:
+        return None
+    
+    # Convert to milliseconds if needed
+    # Timestamps > 1e15 are likely nanoseconds, > 1e12 are microseconds, <= 1e13 are milliseconds
+    if timestamp_val > 1e15:
+        # Nanoseconds - convert to milliseconds
+        timestamp_ms = timestamp_val / 1e6
+    elif timestamp_val > 1e12:
+        # Could be microseconds or already milliseconds - check by magnitude
+        # If > 1e13 it's likely microseconds
+        if timestamp_val > 1e13:
+            timestamp_ms = timestamp_val / 1e3  # microseconds to milliseconds
+        else:
+            timestamp_ms = timestamp_val  # already milliseconds
+    else:
+        # Already in milliseconds or seconds
+        if timestamp_val < 1e9:
+            timestamp_ms = timestamp_val * 1000  # seconds to milliseconds
+        else:
+            timestamp_ms = timestamp_val  # already milliseconds
+    
+    try:
+        return pd.to_datetime(int(timestamp_ms), unit='ms')
+    except (ValueError, OverflowError, OSError):
+        return None

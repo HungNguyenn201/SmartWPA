@@ -32,7 +32,10 @@ def prepare_combined_dataframe_from_sources(
                 if value is None or np.isnan(value) or np.isinf(value):
                     continue
                 
-                timestamp_dt = pd.to_datetime(point.timestamp, unit='ms')
+                from ._header import convert_timestamp_to_datetime
+                timestamp_dt = convert_timestamp_to_datetime(point.timestamp)
+                if timestamp_dt is None:
+                    continue
                 data.append({
                     'timestamp': timestamp_dt,
                     source: float(value)

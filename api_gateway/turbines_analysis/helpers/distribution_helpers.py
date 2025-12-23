@@ -9,7 +9,8 @@ from ._header import (
     DAY_END_HOUR,
     PERIOD_NAMES,
     SEASON_MAP,
-    SEASON_NAMES
+    SEASON_NAMES,
+    convert_timestamp_to_datetime
 )
 
 
@@ -80,7 +81,10 @@ def calculate_monthly_distribution(
         
         if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
             if np.issubdtype(df['timestamp'].dtype, np.integer) or np.issubdtype(df['timestamp'].dtype, np.floating):
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                # Use helper function to handle different timestamp units
+                from ._header import convert_timestamp_to_datetime
+                df['timestamp'] = df['timestamp'].apply(convert_timestamp_to_datetime)
+                df = df.dropna(subset=['timestamp'])  # Remove rows with invalid timestamps
             else:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
         
@@ -152,7 +156,10 @@ def calculate_day_night_distribution(
         
         if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
             if np.issubdtype(df['timestamp'].dtype, np.integer) or np.issubdtype(df['timestamp'].dtype, np.floating):
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                # Use helper function to handle different timestamp units
+                from ._header import convert_timestamp_to_datetime
+                df['timestamp'] = df['timestamp'].apply(convert_timestamp_to_datetime)
+                df = df.dropna(subset=['timestamp'])  # Remove rows with invalid timestamps
             else:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
         
@@ -231,7 +238,10 @@ def calculate_seasonal_distribution(
         
         if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
             if np.issubdtype(df['timestamp'].dtype, np.integer) or np.issubdtype(df['timestamp'].dtype, np.floating):
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                # Use helper function to handle different timestamp units
+                from ._header import convert_timestamp_to_datetime
+                df['timestamp'] = df['timestamp'].apply(convert_timestamp_to_datetime)
+                df = df.dropna(subset=['timestamp'])  # Remove rows with invalid timestamps
             else:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
         
@@ -310,7 +320,7 @@ def prepare_dataframe_from_classification_points(
         
         for point in classification_points.iterator(chunk_size=1000):
             data.append({
-                'timestamp': pd.to_datetime(point.timestamp, unit='ms'),
+                'timestamp': convert_timestamp_to_datetime(point.timestamp),
                 'value': getattr(point, field_name)
             })
         

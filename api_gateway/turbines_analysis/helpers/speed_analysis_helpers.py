@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import numpy as np
 from scipy.stats import weibull_min
@@ -9,39 +10,38 @@ from ._header import (
     DAY_END_HOUR_ALT,
     PERIOD_NAMES,
     SEASON_MAP,
-    SEASON_NAMES
+    SEASON_NAMES,
+    convert_timestamp_to_datetime
 )
+
+logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
 def prepare_bins(values: np.ndarray, bin_width: float) -> np.ndarray:
     if len(values) == 0:
         return np.array([0, bin_width])
     
-    # Filter out NaN and Inf values
     valid_values = values[~np.isnan(values) & ~np.isinf(values)]
     if len(valid_values) == 0:
         return np.array([0, bin_width])
     
     vmax = float(np.max(valid_values))
-    vmin = float(np.max([0, np.min(valid_values)]))
     
     if vmax <= 0:
         vmax = bin_width * 10
     
     adjusted_bin_width = bin_width
-    
-    bins_count = int((vmax - vmin) / bin_width) + 2
+    bins_count = int(vmax / bin_width) + 2
     
     if bins_count < MIN_BINS:
-        adjusted_bin_width = (vmax - vmin) / (MIN_BINS - 2) if MIN_BINS > 2 else bin_width
+        adjusted_bin_width = vmax / (MIN_BINS - 2) if MIN_BINS > 2 else bin_width
     elif bins_count > MAX_BINS:
-        adjusted_bin_width = (vmax - vmin) / (MAX_BINS - 2) if MAX_BINS > 2 else bin_width
+        adjusted_bin_width = vmax / (MAX_BINS - 2) if MAX_BINS > 2 else bin_width
     
     if adjusted_bin_width <= 0:
         adjusted_bin_width = bin_width
     
-    num_bins = max(2, int((vmax - vmin) / adjusted_bin_width) + 2)
-    bins = np.linspace(vmin, vmax + adjusted_bin_width, num_bins)
+    bins = np.linspace(0, vmax + adjusted_bin_width, int(vmax / adjusted_bin_width) + 2)
     return bins
 
 
@@ -59,7 +59,21 @@ def compute_statistics(values: np.ndarray) -> Tuple[float, float, float]:
 
 
 def format_array_values(values) -> list:
-    return [float(val) for val in values]
+    result = []
+    for val in values:
+        if isinstance(val, (float, np.floating)):
+            if np.isnan(val) or np.isinf(val):
+                result.append(None)
+            else:
+                result.append(float(val))
+        elif isinstance(val, (int, np.integer)):
+            result.append(int(val))
+        else:
+            try:
+                result.append(float(val))
+            except (ValueError, TypeError):
+                result.append(None)
+    return result
 
 
 def calculate_weibull_curve(wind_speeds: np.ndarray, bin_centers: np.ndarray) -> Tuple[np.ndarray, float, float]:
@@ -79,18 +93,11 @@ def calculate_weibull_curve(wind_speeds: np.ndarray, bin_centers: np.ndarray) ->
         k = float(shape)
         A = float(scale)
         
-        if k <= 0 or A <= 0:
-            k = 2.0
-            A = float(np.mean(valid_speeds))
-            if A <= 0:
-                A = 5.0
-        
-        with np.errstate(divide='ignore', invalid='ignore'):
-            weibull_curve = (k / A) * (bin_centers / A) ** (k - 1) * np.exp(-(bin_centers / A) ** k) * 100
-        
+        weibull_curve = (k / A) * (bin_centers / A) ** (k - 1) * np.exp(-(bin_centers / A) ** k) * 100
         weibull_curve = np.nan_to_num(weibull_curve, nan=0.0, posinf=0.0, neginf=0.0)
         return weibull_curve, k, A
-    except Exception:
+    except Exception as e:
+        logger.error(f"Weibull fit failed: {str(e)}", exc_info=True)
         k = 2.0
         A = float(np.mean(valid_speeds)) if len(valid_speeds) > 0 else 5.0
         if A <= 0:
@@ -107,7 +114,6 @@ def calculate_speed_rose(
     threshold2: float,
     sectors_number: int
 ) -> Optional[Dict]:
-    """Calculate speed rose data"""
     if directions is None or len(directions) == 0:
         return None
     
@@ -116,26 +122,18 @@ def calculate_speed_rose(
     
     try:
         sector_angle = 360.0 / sectors_number
-        sectors = np.zeros((sectors_number, 3), dtype=np.float64)
+        sectors = np.zeros((sectors_number, 3))
         
-        valid_count = 0
         for speed, direction in zip(wind_speeds, directions):
-            # Skip invalid values
-            if np.isnan(direction) or np.isinf(direction) or np.isnan(speed) or np.isinf(speed):
+            if direction is None:
+                continue
+            if isinstance(direction, (float, np.floating)) and (np.isnan(direction) or np.isinf(direction)):
+                continue
+            if isinstance(speed, (float, np.floating)) and (np.isnan(speed) or np.isinf(speed)):
                 continue
             
-            # Normalize direction to [0, 360)
-            direction = direction % 360
-            if direction < 0:
-                direction += 360
+            sector_idx = int((direction % 360) / sector_angle)
             
-            # Calculate sector index (0 to sectors_number-1)
-            sector_idx = int(direction / sector_angle)
-            # Handle edge case: direction = 360 should map to sector 0, not sectors_number
-            if sector_idx >= sectors_number:
-                sector_idx = 0
-            
-            # Categorize speed
             if speed < threshold1:
                 speed_category = 0
             elif speed < threshold2:
@@ -144,14 +142,13 @@ def calculate_speed_rose(
                 speed_category = 2
             
             sectors[sector_idx, speed_category] += 1
-            valid_count += 1
         
-        if valid_count == 0:
+        total_samples = np.sum(sectors)
+        
+        if total_samples == 0:
             return None
         
-        # Normalize to percentages
-        if valid_count > 0:
-            sectors = (sectors / valid_count) * 100
+        sectors = (sectors / total_samples) * 100
         
         angles = [i * sector_angle for i in range(sectors_number)]
         
@@ -161,7 +158,8 @@ def calculate_speed_rose(
             "medium_speed": format_array_values(sectors[:, 1]),
             "high_speed": format_array_values(sectors[:, 2])
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error calculating speed rose: {str(e)}", exc_info=True)
         return None
 
 
@@ -172,12 +170,10 @@ def calculate_global_distribution(
     threshold2: float,
     sectors_number: int
 ) -> Optional[Dict]:
-    """Calculate global wind distribution"""
     try:
         if df.empty or 'wind_speed' not in df.columns:
             return None
         
-        # Filter out invalid wind speeds
         valid_df = df[~df['wind_speed'].isin([np.nan, np.inf, -np.inf])].copy()
         if valid_df.empty:
             return None
@@ -185,32 +181,22 @@ def calculate_global_distribution(
         wind_speeds = valid_df['wind_speed'].values
         directions = valid_df['direction'].values if 'direction' in valid_df.columns else None
         
-        # Filter out NaN/Inf from directions if present
-        if directions is not None:
-            valid_mask = ~(np.isnan(directions) | np.isinf(directions))
-            valid_wind_speeds = wind_speeds[valid_mask]
-            valid_directions = directions[valid_mask]
-        else:
-            valid_wind_speeds = wind_speeds
-            valid_directions = None
-        
-        if len(valid_wind_speeds) == 0:
+        if len(wind_speeds) == 0:
             return None
         
-        vmean, vmax, vmin = compute_statistics(valid_wind_speeds)
-        bins = prepare_bins(valid_wind_speeds, bin_width)
-        hist, bin_edges = compute_histogram(valid_wind_speeds, bins)
+        vmean, vmax, vmin = compute_statistics(wind_speeds)
+        bins = prepare_bins(wind_speeds, bin_width)
+        hist, bin_edges = compute_histogram(wind_speeds, bins)
         
-        # Calculate energy distribution (wind speed^3)
-        wind_energy = valid_wind_speeds ** 3
-        energy_hist, _ = np.histogram(valid_wind_speeds, bins=bins, weights=wind_energy, density=True)
+        wind_energy = wind_speeds ** 3
+        energy_hist, _ = np.histogram(wind_speeds, bins=bins, weights=wind_energy, density=True)
         energy_hist = energy_hist * 100
         
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        weibull_curve, k, A = calculate_weibull_curve(valid_wind_speeds, bin_centers)
+        weibull_curve, k, A = calculate_weibull_curve(wind_speeds, bin_centers)
         
         speed_rose_data = calculate_speed_rose(
-            valid_wind_speeds, valid_directions, threshold1, threshold2, sectors_number
+            wind_speeds, directions, threshold1, threshold2, sectors_number
         )
         
         return {
@@ -234,8 +220,19 @@ def calculate_global_distribution(
                 "sectors_number": sectors_number
             }
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in calculate_global_distribution: {str(e)}", exc_info=True)
         return None
+
+
+def _prepare_timestamp_column(df: pd.DataFrame) -> pd.DataFrame:
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        if np.issubdtype(df['timestamp'].dtype, np.integer) or np.issubdtype(df['timestamp'].dtype, np.floating):
+            df['timestamp'] = df['timestamp'].apply(convert_timestamp_to_datetime)
+            df = df.dropna(subset=['timestamp'])
+        else:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+    return df
 
 
 def calculate_monthly_distribution(
@@ -245,25 +242,17 @@ def calculate_monthly_distribution(
     threshold2: float,
     sectors_number: int
 ) -> Optional[Dict]:
-    """Calculate monthly wind distribution"""
     try:
         if df.empty or 'wind_speed' not in df.columns:
             return None
         
-        # Filter out invalid wind speeds
         valid_df = df[~df['wind_speed'].isin([np.nan, np.inf, -np.inf])].copy()
         if valid_df.empty:
             return None
         
-        if not pd.api.types.is_datetime64_any_dtype(valid_df['timestamp']):
-            if np.issubdtype(valid_df['timestamp'].dtype, np.integer) or np.issubdtype(valid_df['timestamp'].dtype, np.floating):
-                valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'], unit='ms')
-            else:
-                valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'])
-        
+        valid_df = _prepare_timestamp_column(valid_df)
         valid_df['month'] = valid_df['timestamp'].dt.month
         
-        # Prepare bins once using all data
         wind_speeds = valid_df['wind_speed'].values
         bins = prepare_bins(wind_speeds, bin_width)
         bin_centers = (bins[:-1] + bins[1:]) / 2
@@ -293,23 +282,15 @@ def calculate_monthly_distribution(
             month_names_array.append(month_names[month])
             
             month_directions = month_df['direction'].values if 'direction' in month_df.columns else None
-            if month_directions is not None:
-                # Filter to match valid wind speeds
-                valid_mask = ~(np.isnan(month_directions) | np.isinf(month_directions))
-                valid_month_speeds = month_wind_speeds[valid_mask]
-                valid_month_directions = month_directions[valid_mask]
-            else:
-                valid_month_speeds = month_wind_speeds
-                valid_month_directions = None
             
-            hist, _ = compute_histogram(valid_month_speeds, bins)
-            wind_energy = valid_month_speeds ** 3
-            energy_hist, _ = np.histogram(valid_month_speeds, bins=bins, weights=wind_energy, density=True)
+            hist, _ = compute_histogram(month_wind_speeds, bins)
+            wind_energy = month_wind_speeds ** 3
+            energy_hist, _ = np.histogram(month_wind_speeds, bins=bins, weights=wind_energy, density=True)
             energy_hist = energy_hist * 100
             
-            weibull_curve, k, A = calculate_weibull_curve(valid_month_speeds, bin_centers)
+            weibull_curve, k, A = calculate_weibull_curve(month_wind_speeds, bin_centers)
             speed_rose_data = calculate_speed_rose(
-                valid_month_speeds, valid_month_directions, threshold1, threshold2, sectors_number
+                month_wind_speeds, month_directions, threshold1, threshold2, sectors_number
             )
             
             month_key = str(month)
@@ -327,7 +308,6 @@ def calculate_monthly_distribution(
         filtered_monthly_data = {k: v for k, v in monthly_data.items() if k in [str(m) for m in months]}
         filtered_monthly_speed_roses = {k: v for k, v in monthly_speed_roses.items() if k in [str(m) for m in months]}
         
-        # Get overall statistics
         _, overall_k, overall_A = calculate_weibull_curve(wind_speeds, bin_centers)
         
         return {
@@ -351,7 +331,8 @@ def calculate_monthly_distribution(
                 "weibull_A": overall_A
             }
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in calculate_monthly_distribution: {str(e)}", exc_info=True)
         return None
 
 
@@ -362,27 +343,19 @@ def calculate_day_night_distribution(
     threshold2: float,
     sectors_number: int
 ) -> Optional[Dict]:
-    """Calculate day/night wind distribution"""
     try:
         if df.empty or 'wind_speed' not in df.columns:
             return None
         
-        # Filter out invalid wind speeds
         valid_df = df[~df['wind_speed'].isin([np.nan, np.inf, -np.inf])].copy()
         if valid_df.empty:
             return None
         
-        if not pd.api.types.is_datetime64_any_dtype(valid_df['timestamp']):
-            if np.issubdtype(valid_df['timestamp'].dtype, np.integer) or np.issubdtype(valid_df['timestamp'].dtype, np.floating):
-                valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'], unit='ms')
-            else:
-                valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'])
-        
+        valid_df = _prepare_timestamp_column(valid_df)
         valid_df['hour'] = valid_df['timestamp'].dt.hour
         valid_df['period'] = PERIOD_NAMES['Night']
         valid_df.loc[(valid_df['hour'] >= DAY_START_HOUR_ALT) & (valid_df['hour'] < DAY_END_HOUR_ALT), 'period'] = PERIOD_NAMES['Day']
         
-        # Prepare bins once using all data
         wind_speeds = valid_df['wind_speed'].values
         bins = prepare_bins(wind_speeds, bin_width)
         bin_centers = (bins[:-1] + bins[1:]) / 2
@@ -403,23 +376,15 @@ def calculate_day_night_distribution(
             
             periods.append(period)
             period_directions = period_df['direction'].values if 'direction' in period_df.columns else None
-            if period_directions is not None:
-                # Filter to match valid wind speeds
-                valid_mask = ~(np.isnan(period_directions) | np.isinf(period_directions))
-                valid_period_speeds = period_wind_speeds[valid_mask]
-                valid_period_directions = period_directions[valid_mask]
-            else:
-                valid_period_speeds = period_wind_speeds
-                valid_period_directions = None
             
-            hist, _ = compute_histogram(valid_period_speeds, bins)
-            wind_energy = valid_period_speeds ** 3
-            energy_hist, _ = np.histogram(valid_period_speeds, bins=bins, weights=wind_energy, density=True)
+            hist, _ = compute_histogram(period_wind_speeds, bins)
+            wind_energy = period_wind_speeds ** 3
+            energy_hist, _ = np.histogram(period_wind_speeds, bins=bins, weights=wind_energy, density=True)
             energy_hist = energy_hist * 100
             
-            weibull_curve, k, A = calculate_weibull_curve(valid_period_speeds, bin_centers)
+            weibull_curve, k, A = calculate_weibull_curve(period_wind_speeds, bin_centers)
             speed_rose_data = calculate_speed_rose(
-                valid_period_speeds, valid_period_directions, threshold1, threshold2, sectors_number
+                period_wind_speeds, period_directions, threshold1, threshold2, sectors_number
             )
             
             day_night_data[period] = {
@@ -458,7 +423,8 @@ def calculate_day_night_distribution(
                 "weibull_A": overall_A
             }
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in calculate_day_night_distribution: {str(e)}", exc_info=True)
         return None
 
 
@@ -469,26 +435,18 @@ def calculate_seasonal_distribution(
     threshold2: float,
     sectors_number: int
 ) -> Optional[Dict]:
-    """Calculate seasonal wind distribution"""
     try:
         if df.empty or 'wind_speed' not in df.columns:
             return None
         
-        # Filter out invalid wind speeds
         valid_df = df[~df['wind_speed'].isin([np.nan, np.inf, -np.inf])].copy()
         if valid_df.empty:
             return None
         
-        if not pd.api.types.is_datetime64_any_dtype(valid_df['timestamp']):
-            if np.issubdtype(valid_df['timestamp'].dtype, np.integer) or np.issubdtype(valid_df['timestamp'].dtype, np.floating):
-                valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'], unit='ms')
-            else:
-                valid_df['timestamp'] = pd.to_datetime(valid_df['timestamp'])
-        
+        valid_df = _prepare_timestamp_column(valid_df)
         valid_df['month'] = valid_df['timestamp'].dt.month
         valid_df['season'] = valid_df['month'].map(SEASON_MAP)
         
-        # Prepare bins once using all data
         wind_speeds = valid_df['wind_speed'].values
         bins = prepare_bins(wind_speeds, bin_width)
         bin_centers = (bins[:-1] + bins[1:]) / 2
@@ -509,23 +467,15 @@ def calculate_seasonal_distribution(
             
             seasons.append(season)
             season_directions = season_df['direction'].values if 'direction' in season_df.columns else None
-            if season_directions is not None:
-                # Filter to match valid wind speeds
-                valid_mask = ~(np.isnan(season_directions) | np.isinf(season_directions))
-                valid_season_speeds = season_wind_speeds[valid_mask]
-                valid_season_directions = season_directions[valid_mask]
-            else:
-                valid_season_speeds = season_wind_speeds
-                valid_season_directions = None
             
-            hist, _ = compute_histogram(valid_season_speeds, bins)
-            wind_energy = valid_season_speeds ** 3
-            energy_hist, _ = np.histogram(valid_season_speeds, bins=bins, weights=wind_energy, density=True)
+            hist, _ = compute_histogram(season_wind_speeds, bins)
+            wind_energy = season_wind_speeds ** 3
+            energy_hist, _ = np.histogram(season_wind_speeds, bins=bins, weights=wind_energy, density=True)
             energy_hist = energy_hist * 100
             
-            weibull_curve, k, A = calculate_weibull_curve(valid_season_speeds, bin_centers)
+            weibull_curve, k, A = calculate_weibull_curve(season_wind_speeds, bin_centers)
             speed_rose_data = calculate_speed_rose(
-                valid_season_speeds, valid_season_directions, threshold1, threshold2, sectors_number
+                season_wind_speeds, season_directions, threshold1, threshold2, sectors_number
             )
             
             seasonal_data[season] = {
@@ -563,7 +513,8 @@ def calculate_seasonal_distribution(
                 "weibull_A": overall_A
             }
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in calculate_seasonal_distribution: {str(e)}", exc_info=True)
         return None
 
 
@@ -571,18 +522,19 @@ def prepare_dataframe_from_classification_and_historical(
     classification_points,
     historical_data_list: Optional[list] = None
 ) -> Optional[pd.DataFrame]:
-    """Prepare DataFrame from ClassificationPoint and optionally merge with FactoryHistorical wind_dir"""
     try:
         if not classification_points.exists():
             return None
         
-        # Prepare classification points data
         cp_data = []
         for point in classification_points.iterator(chunk_size=1000):
             if point.wind_speed is None or np.isnan(point.wind_speed) or np.isinf(point.wind_speed):
                 continue
             
-            timestamp_dt = pd.to_datetime(point.timestamp, unit='ms')
+            timestamp_dt = convert_timestamp_to_datetime(point.timestamp)
+            if timestamp_dt is None:
+                continue
+            
             cp_data.append({
                 'timestamp': timestamp_dt,
                 'wind_speed': float(point.wind_speed)
@@ -594,7 +546,6 @@ def prepare_dataframe_from_classification_and_historical(
         df_cp = pd.DataFrame(cp_data)
         df_cp = df_cp.set_index('timestamp').sort_index()
         
-        # Merge with historical wind direction data if available
         if historical_data_list and len(historical_data_list) > 0:
             hist_data = []
             for hist in historical_data_list:
@@ -614,7 +565,6 @@ def prepare_dataframe_from_classification_and_historical(
                 df_hist = pd.DataFrame(hist_data)
                 df_hist = df_hist.set_index('timestamp').sort_index()
                 
-                # Use merge_asof for efficient time-series merging (nearest match within 5 minutes)
                 df = pd.merge_asof(
                     df_cp,
                     df_hist,
@@ -630,18 +580,17 @@ def prepare_dataframe_from_classification_and_historical(
             df = df_cp.copy()
             df['wind_dir'] = None
         
-        # Rename wind_dir to direction for consistency
         if 'wind_dir' in df.columns:
             df = df.rename(columns={'wind_dir': 'direction'})
         
-        # Reset index to make timestamp a column
         df = df.reset_index()
-        
-        # Final cleanup
         df = df.dropna(subset=['wind_speed'])
         df = df[~df['wind_speed'].isin([np.inf, -np.inf])]
         
-        return df if not df.empty else None
-    except Exception:
+        if df.empty:
+            return None
+        
+        return df
+    except Exception as e:
+        logger.error(f"Error in prepare_dataframe_from_classification_and_historical: {str(e)}", exc_info=True)
         return None
-
