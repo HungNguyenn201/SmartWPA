@@ -4,7 +4,7 @@ from api_gateway.management.common.validators import validate_name, validate_cap
 
 def validate_farm_name(name, exclude_farm_id=None):
     """Validate farm name"""
-    return validate_name(name, min_length=3, max_length=100, model_class=Farm, exclude_id=exclude_farm_id, field_name="Farm name")
+    return validate_name(name, min_length=3, max_length=100, model_class=Farm, exclude_id=exclude_farm_id, field_name="Farm name", db_field_name="name")
 
 def validate_farm_data(name=None, capacity=None, latitude=None, longitude=None, exclude_farm_id=None):
     """Validate tất cả farm data"""

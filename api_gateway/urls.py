@@ -49,6 +49,7 @@ from api_gateway.turbines_analysis.time_profile import TimeProfileAPIView
 from api_gateway.turbines_analysis.weibull import TurbineWeibullAPIView, FarmWeibullAPIView
 from api_gateway.turbines_analysis.power_curve import TurbinePowerCurveAPIView, FarmPowerCurveAPIView
 from api_gateway.turbines_analysis.computation import ComputationAPIView
+from api_gateway.turbines_analysis.yaw_error import TurbineYawErrorAPIView
 
 urlpatterns = [
     # Authentication endpoints
@@ -108,6 +109,7 @@ urlpatterns = [
     path('api/turbines/<int:turbine_id>/time-profile/', TimeProfileAPIView.as_view(), name='time-profile'),
     path('api/turbines/<int:turbine_id>/weibull/', TurbineWeibullAPIView.as_view(), name='turbine-weibull'),
     path('api/turbines/<int:turbine_id>/power-curve/', TurbinePowerCurveAPIView.as_view(), name='turbine-power-curve'),
+    path('api/turbines/<int:turbine_id>/yaw-error/', TurbineYawErrorAPIView.as_view(), name='turbine-yaw-error'),
     
     # Farm analysis endpoints
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),

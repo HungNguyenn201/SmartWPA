@@ -15,7 +15,7 @@ def validate_email(email, exclude_user_id=None):
         return {"valid": False, "error": "Email already exists", "code": "EMAIL_EXISTS"}
     return {"valid": True}
 
-def validate_name(name, min_length=3, max_length=100, model_class=None, exclude_id=None, field_name="name"):
+def validate_name(name, min_length=3, max_length=100, model_class=None, exclude_id=None, field_name="name", db_field_name="name"):
     """Generic name validator"""
     if not name:
         return {"valid": False, "error": f"{field_name} is required", "code": "EMPTY_NAME"}
@@ -27,7 +27,7 @@ def validate_name(name, min_length=3, max_length=100, model_class=None, exclude_
         return {"valid": False, "error": f"{field_name} contains invalid characters", "code": "INVALID_NAME_FORMAT"}
     
     if model_class:
-        query = model_class.objects.filter(**{f"{field_name}__iexact": name})
+        query = model_class.objects.filter(**{f"{db_field_name}__iexact": name})
         if exclude_id:
             query = query.exclude(id=exclude_id)
         if query.exists():

@@ -10,8 +10,14 @@ def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     obj['AverageWindSpeed'] = estimated_data['WIND_SPEED'].mean()
     obj['ReachableEnergy'] = estimated_data['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
     obj['RealEnergy'] = estimated_data['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
-    obj['LossEnergy'] = obj['ReachableEnergy'] - obj['RealEnergy']
-    obj['LossPercent'] = obj['LossEnergy'] / obj['ReachableEnergy']
+
+    obj['LossEnergy'] = max(0.0, obj['ReachableEnergy'] - obj['RealEnergy'])
+    
+    
+    if obj['ReachableEnergy'] > 0:
+        obj['LossPercent'] = obj['LossEnergy'] / obj['ReachableEnergy']
+    else:
+        obj['LossPercent'] = 0.0
     
     tmp = (estimated_data.groupby(pd.Grouper(freq='D'))['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))) \
                         .rename_axis('date') \
@@ -35,25 +41,31 @@ def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     non_errors = estimated_data[estimated_data['status'] != 'MEASUREMENT_ERROR']
     obj['Pba'] = non_errors['ACTIVE_POWER'].sum() / non_errors['ESTIMATED_POWER'].sum()
     
+    
     tmp = estimated_data[estimated_data['status'] == 'STOP']
-    obj['StopLoss'] = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1)) \
-                    - tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    estimated_stop = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    real_stop = tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    obj['StopLoss'] = max(0.0, estimated_stop - real_stop)
 
     tmp = estimated_data[estimated_data['status'] == 'PARTIAL_STOP']
-    obj['PartialStopLoss'] = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1)) \
-                    - tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    estimated_partial_stop = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    real_partial_stop = tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    obj['PartialStopLoss'] = max(0.0, estimated_partial_stop - real_partial_stop)
 
     tmp = estimated_data[estimated_data['status'] == 'UNDERPRODUCTION']
-    obj['UnderProductionLoss'] = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1)) \
-                    - tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    estimated_under = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    real_under = tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    obj['UnderProductionLoss'] = max(0.0, estimated_under - real_under)
 
     tmp = estimated_data[estimated_data['status'] == 'CURTAILMENT']
-    obj['CurtailmentLoss'] = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1)) \
-                    - tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    estimated_curtail = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    real_curtail = tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    obj['CurtailmentLoss'] = max(0.0, estimated_curtail - real_curtail)
 
     tmp = estimated_data[estimated_data['status'] == 'PARTIAL_CURTAILMENT']
-    obj['PartialCurtailmentLoss'] = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1)) \
-                    - tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    estimated_partial_curtail = tmp['ESTIMATED_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    real_partial_curtail = tmp['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))
+    obj['PartialCurtailmentLoss'] = max(0.0, estimated_partial_curtail - real_partial_curtail)
 
     obj['TotalStopPoints'] = len(classified[classified['status'] == 'STOP'])
     obj['TotalPartialStopPoints'] = len(classified[classified['status'] == 'PARTIAL_STOP'])
