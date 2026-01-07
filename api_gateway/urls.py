@@ -51,6 +51,7 @@ from api_gateway.turbines_analysis.power_curve import TurbinePowerCurveAPIView, 
 from api_gateway.turbines_analysis.computation import ComputationAPIView
 from api_gateway.turbines_analysis.yaw_error import TurbineYawErrorAPIView
 from api_gateway.turbines_analysis.timeseries import TurbineTimeseriesAPIView
+from api_gateway.turbines_analysis.working_period import TurbineWorkingPeriodAPIView
 
 urlpatterns = [
     # Authentication endpoints
@@ -112,6 +113,7 @@ urlpatterns = [
     path('api/turbines/<int:turbine_id>/power-curve/', TurbinePowerCurveAPIView.as_view(), name='turbine-power-curve'),
     path('api/turbines/<int:turbine_id>/yaw-error/', TurbineYawErrorAPIView.as_view(), name='turbine-yaw-error'),
     path('api/turbines/<int:turbine_id>/timeseries/', TurbineTimeseriesAPIView.as_view(), name='turbine-timeseries'),
+    path('api/turbines/<int:turbine_id>/working-period/', TurbineWorkingPeriodAPIView.as_view(), name='turbine-working-period'),
     
     # Farm analysis endpoints
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
