@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Optional, List, Tuple
 from ._header import (
-    BIN_NAME_MAPPING,
     DEFAULT_BIN_COUNT,
     MONTH_NAMES,
     DAY_START_HOUR,
@@ -15,7 +14,7 @@ from ._header import (
 
 
 def get_bin_name(source_type: str) -> str:
-    return BIN_NAME_MAPPING.get(source_type, 'bin')
+    return 'bin'
 
 
 def calculate_global_distribution(
