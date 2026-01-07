@@ -49,25 +49,30 @@ class TurbineTimeseriesAPIView(APIView):
                     "code": "INVALID_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            if start_time:
-                try:
-                    start_time = int(start_time)
-                except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time must be an integer (Unix timestamp in milliseconds)",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+            if not start_time or not end_time:
+                return Response({
+                    "success": False,
+                    "error": "start_time and end_time are required",
+                    "code": "MISSING_PARAMETERS"
+                }, status=status.HTTP_400_BAD_REQUEST)
             
-            if end_time:
-                try:
-                    end_time = int(end_time)
-                except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "end_time must be an integer (Unix timestamp in milliseconds)",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                start_time = int(start_time)
+            except ValueError:
+                return Response({
+                    "success": False,
+                    "error": "start_time must be an integer (Unix timestamp in milliseconds)",
+                    "code": "INVALID_PARAMETERS"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                end_time = int(end_time)
+            except ValueError:
+                return Response({
+                    "success": False,
+                    "error": "end_time must be an integer (Unix timestamp in milliseconds)",
+                    "code": "INVALID_PARAMETERS"
+                }, status=status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)

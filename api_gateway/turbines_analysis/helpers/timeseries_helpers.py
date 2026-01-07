@@ -2,20 +2,9 @@ import logging
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
-from pathlib import Path
 
 from facilities.models import Turbines
 from api_gateway.turbines_analysis.helpers.computation_helper import load_turbine_data
-from api_gateway.turbines_analysis.helpers._header import (
-    CSV_SEPARATOR,
-    CSV_ENCODING,
-    CSV_DATETIME_FORMAT,
-    CSV_DATETIME_DAYFIRST,
-    FIELD_MAPPING,
-    REQUIRED_FILES,
-    OPTIONAL_FILES,
-    DEFAULT_DATA_DIR
-)
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -30,69 +19,11 @@ SOURCE_TO_FIELD_MAPPING = {
 }
 
 
-def _load_timeseries_from_file_without_time(turbine: Turbines) -> Optional[pd.DataFrame]:
-    data_path = Path(DEFAULT_DATA_DIR) / f"Farm{turbine.farm.id}" / f"WT{turbine.id}"
-    
-    if not data_path.exists():
-        return None
-    
-    dataframes = []
-    for filename in REQUIRED_FILES:
-        file_path = data_path / filename
-        if not file_path.exists():
-            continue
-        
-        try:
-            df = pd.read_csv(file_path, sep=CSV_SEPARATOR, encoding=CSV_ENCODING)
-            if df.empty:
-                continue
-            
-            df['DATE_TIME'] = pd.to_datetime(df['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
-            data_column = FIELD_MAPPING[filename]
-            df = df.rename(columns={df.columns[1]: data_column, 'DATE_TIME': 'TIMESTAMP'})
-            df = df[['TIMESTAMP', data_column]]
-            dataframes.append(df)
-        except Exception as e:
-            logger.warning(f"Error reading {filename}: {str(e)}")
-            continue
-    
-    if len(dataframes) < 2:
-        return None
-    
-    df_merged = dataframes[0]
-    for df in dataframes[1:]:
-        df_merged = pd.merge(df_merged, df, on='TIMESTAMP', how='inner')
-    
-    for filename, column_name in OPTIONAL_FILES.items():
-        file_path = data_path / filename
-        if not file_path.exists():
-            continue
-        
-        try:
-            df_opt = pd.read_csv(file_path, sep=CSV_SEPARATOR, encoding=CSV_ENCODING)
-            if df_opt.empty:
-                continue
-            
-            df_opt['DATE_TIME'] = pd.to_datetime(df_opt['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
-            df_opt = df_opt.rename(columns={df_opt.columns[1]: column_name, 'DATE_TIME': 'TIMESTAMP'})
-            df_opt = df_opt[['TIMESTAMP', column_name]]
-            df_merged = pd.merge(df_merged, df_opt, on='TIMESTAMP', how='left')
-        except Exception:
-            continue
-    
-    if 'TEMPERATURE' in df_merged.columns:
-        df_merged['TEMPERATURE'] = df_merged['TEMPERATURE'].apply(
-            lambda x: x + 273.15 if pd.notna(x) and x < 223 else x
-        )
-    
-    return df_merged.sort_values('TIMESTAMP').reset_index(drop=True)
-
-
 def load_timeseries_data(
     turbine: Turbines,
     sources: List[str],
-    start_time: Optional[int],
-    end_time: Optional[int]
+    start_time: int,
+    end_time: int
 ) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str]]:
     field_names = [SOURCE_TO_FIELD_MAPPING.get(source) for source in sources]
     field_names = [f for f in field_names if f]
@@ -100,17 +31,10 @@ def load_timeseries_data(
     if not field_names:
         return None, None, "No valid field names found for sources"
     
-    if start_time is None or end_time is None:
-        df = _load_timeseries_from_file_without_time(turbine)
-        if df is None or df.empty:
-            return None, None, f"No data found for turbine {turbine.id} in files"
-        data_source_used = 'file'
-        error_info = {}
-    else:
-        df, data_source_used, error_info = load_turbine_data(turbine, start_time, end_time, 'db')
+    df, data_source_used, error_info = load_turbine_data(turbine, start_time, end_time, 'db')
     
     if df is None or df.empty:
-        error_msg = f"No data found for turbine {turbine.id}"
+        error_msg = f"No data found for turbine {turbine.id} for the specified time range"
         if error_info:
             sources_tried = '; '.join(f"{k.capitalize()}: {v}" for k, v in error_info.items())
             error_msg += f". Tried: {sources_tried}"
