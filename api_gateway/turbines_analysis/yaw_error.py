@@ -51,9 +51,8 @@ class TurbineYawErrorAPIView(APIView):
                 turbine=turbine,
                 computation_type='yaw_error',
                 is_latest=True
-            ).select_related('turbine', 'farm').prefetch_related(
-                'yaw_error_points',
-                'yaw_error_statistics'
+            ).select_related('turbine', 'farm', 'yaw_error_statistics').prefetch_related(
+                'yaw_error_points'
             )
             
             if start_time and end_time:
@@ -82,7 +81,7 @@ class TurbineYawErrorAPIView(APIView):
                 }, status=status.HTTP_404_NOT_FOUND)
             
             yaw_error_data = computation.yaw_error_points.values('angle', 'frequency').order_by('angle')
-            yaw_error_stats = computation.yaw_error_statistics.first()
+            yaw_error_stats = computation.yaw_error_statistics
             
             if not yaw_error_data.exists():
                 return Response({
