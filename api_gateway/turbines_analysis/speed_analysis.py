@@ -20,9 +20,9 @@ from api_gateway.turbines_analysis.helpers.speed_analysis_helpers import (
     prepare_dataframe_from_classification_and_historical
 )
 from api_gateway.turbines_analysis.helpers._header import (
-    DEFAULT_DATA_DIR, CSV_SEPARATOR, CSV_ENCODING,
-    CSV_DATETIME_FORMAT, CSV_DATETIME_DAYFIRST, FIELD_MAPPING
+    DEFAULT_DATA_DIR, FIELD_MAPPING
 )
+from api_gateway.turbines_analysis.helpers.computation_helper import _read_csv_with_auto_detect
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -157,12 +157,10 @@ class WindSpeedAnalysisAPIView(APIView):
             start_dt = pd.to_datetime(start_time, unit='ms')
             end_dt = pd.to_datetime(end_time, unit='ms')
             
-            df = pd.read_csv(file_path, sep=CSV_SEPARATOR, encoding=CSV_ENCODING)
+            df = _read_csv_with_auto_detect(file_path)
             
-            if df.empty:
+            if df is None or df.empty or 'DATE_TIME' not in df.columns:
                 return None
-            
-            df['DATE_TIME'] = pd.to_datetime(df['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
             
             direction_column = FIELD_MAPPING.get('DIRECTION_WIND.csv', 'DIRECTION_WIND')
             if direction_column not in df.columns:

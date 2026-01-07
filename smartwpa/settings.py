@@ -192,6 +192,10 @@ LOGGING = {
             'format': '{levelname} {asctime} {message}',
             'style': '{',
         },
+        'detailed': {
+            'format': '{levelname} {asctime} {name} {pathname}:{lineno} {funcName} {message}',
+            'style': '{',
+        },
     },
     'filters': {
         'require_debug_false': {
@@ -199,14 +203,61 @@ LOGGING = {
         },
     },
     'handlers': {
-        'file': {
+        # Django framework logs
+        'file_django': {
             'level': 'WARNING',
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOGS_DIR, 'smartwpa.log'),
+            'filename': os.path.join(LOGS_DIR, 'django.log'),
             'maxBytes': 1024 * 1024 * 10,  # 10 MB
             'backupCount': 5,
             'formatter': 'verbose',
         },
+        # API Gateway logs (management + turbines_analysis)
+        'file_api_gateway': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'api_gateway.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        # Acquisition logs (modbus, smarthis, influx_db, scheduler)
+        'file_acquisition': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'acquisition.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        # Permissions logs
+        'file_permissions': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'permissions.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        # Facilities logs
+        'file_facilities': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'facilities.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        # All ERROR level logs (centralized error tracking)
+        'file_errors': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'errors.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 10,
+            'formatter': 'detailed',
+        },
+        # Console handler
         'console': {
             'level': 'WARNING',
             'class': 'logging.StreamHandler',
@@ -214,134 +265,175 @@ LOGGING = {
         },
     },
     'loggers': {
+        # Django framework
         'django': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_django', 'file_errors', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_django', 'file_errors', 'console'],
             'level': 'ERROR',
             'propagate': False,
         },
-        'api_gateway.management.auth': {
-            'handlers': ['file', 'console'],
+        'django.server': {
+            'handlers': ['file_django', 'console'],
+            'level': 'ERROR',  # Chỉ log ERROR từ development server, bỏ qua 4xx warnings
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['file_django', 'console'],
             'level': 'WARNING',
             'propagate': False,
+        },
+        
+        # API Gateway - Management (auth, license, users, farms, turbines, acquisition, common)
+        'api_gateway.management': {
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'api_gateway.management.auth': {
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,  # Propagate to parent
         },
         'api_gateway.management.license': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'api_gateway.management.users': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'api_gateway.management.farms': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'api_gateway.management.turbines': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'api_gateway.management.acquisition': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'api_gateway.management.common': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
+        
+        # API Gateway - Turbines Analysis
         'api_gateway.turbines_analysis': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_api_gateway', 'file_errors', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
-        'permissions': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'facilities': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
+        
+        # Acquisition - All submodules (modbus, smarthis, influx_db, scheduler)
         'acquisition': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
-        'acquisition.influx_db.sync_service': {
-            'handlers': ['file', 'console'],
+        'acquisition.modbus_master': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.influx_db.influx_service': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.influx_db.influxdb_client': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.influx_db.config_manager': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.smarthis.get_data': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.smarthis.restful_client': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.smarthis.handle_time': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'acquisition.scheduler': {
-            'handlers': ['file', 'console'],
-            'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'acquisition.modbus_master.connection': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'acquisition.modbus_master.data_reader': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
             'level': 'WARNING',
-            'propagate': False,
+            'propagate': True,
         },
         'acquisition.modbus_master.data_storage': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.smarthis': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.smarthis.get_data': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.smarthis.restful_client': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.smarthis.handle_time': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.smarthis.save_data': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.influx_db': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.influx_db.sync_service': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.influx_db.influx_service': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.influx_db.influxdb_client': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.influx_db.config_manager': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'acquisition.scheduler': {
+            'handlers': ['file_acquisition', 'file_errors', 'console'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        
+        # Permissions
+        'permissions': {
+            'handlers': ['file_permissions', 'file_errors', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
-        'acquisition.smarthis.save_data': {
-            'handlers': ['file', 'console'],
+        
+        # Facilities
+        'facilities': {
+            'handlers': ['file_facilities', 'file_errors', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
     },
     'root': {
-        'handlers': ['file', 'console'],
+        'handlers': ['file_errors', 'console'],
         'level': 'WARNING',
     },
 }

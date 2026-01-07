@@ -22,8 +22,8 @@ SOURCE_TO_FIELD_MAPPING = {
 def load_timeseries_data(
     turbine: Turbines,
     sources: List[str],
-    start_time: int,
-    end_time: int
+    start_time: Optional[int],
+    end_time: Optional[int]
 ) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str]]:
     field_names = [SOURCE_TO_FIELD_MAPPING.get(source) for source in sources]
     field_names = [f for f in field_names if f]
@@ -34,7 +34,10 @@ def load_timeseries_data(
     df, data_source_used, error_info = load_turbine_data(turbine, start_time, end_time, 'db')
     
     if df is None or df.empty:
-        error_msg = f"No data found for turbine {turbine.id} for the specified time range"
+        if start_time is None or end_time is None:
+            error_msg = f"No data found for turbine {turbine.id}"
+        else:
+            error_msg = f"No data found for turbine {turbine.id} for the specified time range"
         if error_info:
             sources_tried = '; '.join(f"{k.capitalize()}: {v}" for k, v in error_info.items())
             error_msg += f". Tried: {sources_tried}"
@@ -51,10 +54,15 @@ def load_timeseries_data(
     
     df_selected.rename(columns=column_mapping, inplace=True)
     
+    # Giữ nguyên timestamp ở dạng milliseconds để đồng nhất với input
     if pd.api.types.is_datetime64_any_dtype(df_selected['timestamp']):
-        df_selected['timestamp'] = df_selected['timestamp'].astype(np.int64) // 10**9
+        # Convert từ nanoseconds (pandas datetime) sang milliseconds
+        df_selected['timestamp'] = df_selected['timestamp'].astype(np.int64) // 10**6
     elif df_selected['timestamp'].dtype == 'int64':
-        df_selected['timestamp'] = df_selected['timestamp'] // 1000
+        # Nếu đã là milliseconds, giữ nguyên; nếu là seconds, convert sang milliseconds
+        if df_selected['timestamp'].max() < 1e12:
+            df_selected['timestamp'] = df_selected['timestamp'] * 1000
+        # Nếu đã > 1e12 thì đã là milliseconds, giữ nguyên
     
     return df_selected, data_source_used, None
 
@@ -64,7 +72,11 @@ def resample_dataframe(df: pd.DataFrame, mode: str) -> pd.DataFrame:
         return df
     
     if not pd.api.types.is_datetime64_any_dtype(df.index):
-        df.index = pd.to_datetime(df.index, unit='s')
+        # Nếu index là milliseconds (> 1e12), parse với unit='ms'; nếu là seconds, parse với unit='s'
+        if df.index.max() > 1e12:
+            df.index = pd.to_datetime(df.index, unit='ms')
+        else:
+            df.index = pd.to_datetime(df.index, unit='s')
     
     resample_map = {
         'hourly': 'H',
@@ -126,10 +138,15 @@ def format_timeseries_response(
         if 'index' in df.columns:
             df.rename(columns={'index': 'timestamp'}, inplace=True)
     
+    # Giữ nguyên timestamp ở dạng milliseconds để đồng nhất với input
     if pd.api.types.is_datetime64_any_dtype(df['timestamp']):
-        df['timestamp'] = df['timestamp'].astype(np.int64) // 10**9
-    elif df['timestamp'].dtype in ['int64', 'float64'] and df['timestamp'].max() > 1e12:
-        df['timestamp'] = df['timestamp'] // 1000
+        # Convert từ nanoseconds (pandas datetime) sang milliseconds
+        df['timestamp'] = df['timestamp'].astype(np.int64) // 10**6
+    elif df['timestamp'].dtype in ['int64', 'float64']:
+        # Nếu là seconds (< 1e12), convert sang milliseconds
+        if df['timestamp'].max() < 1e12:
+            df['timestamp'] = df['timestamp'] * 1000
+        # Nếu đã > 1e12 thì đã là milliseconds, giữ nguyên
     
     df.sort_values('timestamp', inplace=True)
     df = df.dropna(how='all')

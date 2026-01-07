@@ -13,8 +13,8 @@ REQUIRED_SOURCES = ['power', 'wind_speed']
 
 def load_working_period_data(
     turbine: Turbines,
-    start_time: int,
-    end_time: int
+    start_time: Optional[int],
+    end_time: Optional[int]
 ) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str]]:
     df, data_source_used, error_msg = load_timeseries_data(
         turbine, REQUIRED_SOURCES, start_time, end_time
@@ -40,18 +40,20 @@ def validate_working_period_params(
     except (ValueError, TypeError):
         variation_int = 50
     
-    if not start_time or not end_time:
-        return False, "start_time and end_time are required", None
+    parsed_start_time = None
+    parsed_end_time = None
     
-    try:
-        parsed_start_time = int(start_time)
-    except ValueError:
-        return False, "start_time must be an integer (Unix timestamp in milliseconds)", None
+    if start_time:
+        try:
+            parsed_start_time = int(start_time)
+        except ValueError:
+            return False, "start_time must be an integer (Unix timestamp in milliseconds)", None
     
-    try:
-        parsed_end_time = int(end_time)
-    except ValueError:
-        return False, "end_time must be an integer (Unix timestamp in milliseconds)", None
+    if end_time:
+        try:
+            parsed_end_time = int(end_time)
+        except ValueError:
+            return False, "end_time must be an integer (Unix timestamp in milliseconds)", None
     
     return True, None, {
         'variation': variation_int,
@@ -110,7 +112,11 @@ def calculate_performance(
     adjusted_factors = mean_wind_factor + (wind_factors - mean_wind_factor) * variation_factor
     result_df['adjusted_wind_factor'] = np.clip(adjusted_factors, 0.1, 1.5)
     
-    result_df['datetime'] = pd.to_datetime(result_df['timestamp'], unit='s')
+    # Parse timestamp: nếu > 1e12 thì là milliseconds, ngược lại là seconds
+    if result_df['timestamp'].max() > 1e12:
+        result_df['datetime'] = pd.to_datetime(result_df['timestamp'], unit='ms')
+    else:
+        result_df['datetime'] = pd.to_datetime(result_df['timestamp'], unit='s')
     result_df.set_index('datetime', inplace=True)
     
     monthly_groups = result_df.groupby(pd.Grouper(freq='MS'))
@@ -146,7 +152,7 @@ def calculate_performance(
         
         if np.isfinite(performance) and performance > 0:
             monthly_results.append({
-                'timestamp': int(month_start.timestamp()),
+                'timestamp': int(month_start.timestamp() * 1000),  # Convert seconds → milliseconds
                 'performance': float(performance)
             })
     

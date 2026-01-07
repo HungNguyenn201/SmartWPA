@@ -28,13 +28,11 @@ class TurbineTimeseriesAPIView(APIView):
     def get(self, request, turbine_id):
         try:
             sources = request.query_params.getlist('sources', [])
-            additional_sources = request.query_params.getlist('additional_sources', [])
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             mode = request.query_params.get('mode', 'raw')
             
-            all_sources = sources + additional_sources
-            if not all_sources:
+            if not sources:
                 return Response({
                     "success": False,
                     "error": "At least one source must be specified",
@@ -49,30 +47,28 @@ class TurbineTimeseriesAPIView(APIView):
                     "code": "INVALID_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            if not start_time or not end_time:
-                return Response({
-                    "success": False,
-                    "error": "start_time and end_time are required",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+            parsed_start_time = None
+            parsed_end_time = None
             
-            try:
-                start_time = int(start_time)
-            except ValueError:
-                return Response({
-                    "success": False,
-                    "error": "start_time must be an integer (Unix timestamp in milliseconds)",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+            if start_time:
+                try:
+                    parsed_start_time = int(start_time)
+                except ValueError:
+                    return Response({
+                        "success": False,
+                        "error": "start_time must be an integer (Unix timestamp in milliseconds)",
+                        "code": "INVALID_PARAMETERS"
+                    }, status=status.HTTP_400_BAD_REQUEST)
             
-            try:
-                end_time = int(end_time)
-            except ValueError:
-                return Response({
-                    "success": False,
-                    "error": "end_time must be an integer (Unix timestamp in milliseconds)",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+            if end_time:
+                try:
+                    parsed_end_time = int(end_time)
+                except ValueError:
+                    return Response({
+                        "success": False,
+                        "error": "end_time must be an integer (Unix timestamp in milliseconds)",
+                        "code": "INVALID_PARAMETERS"
+                    }, status=status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
@@ -91,7 +87,7 @@ class TurbineTimeseriesAPIView(APIView):
                 return permission_response
             
             cache_key = get_cache_key(
-                turbine.id, all_sources, start_time, end_time, mode
+                turbine.id, sources, parsed_start_time, parsed_end_time, mode
             )
             cached_result = cache.get(cache_key)
             if cached_result:
@@ -101,7 +97,7 @@ class TurbineTimeseriesAPIView(APIView):
                 })
             
             df, data_source_used, error_msg = load_timeseries_data(
-                turbine, all_sources, start_time, end_time
+                turbine, sources, parsed_start_time, parsed_end_time
             )
             
             if df is None or df.empty:
@@ -120,10 +116,11 @@ class TurbineTimeseriesAPIView(APIView):
                 df = resample_dataframe(df, mode)
                 
                 if pd.api.types.is_datetime64_any_dtype(df.index):
-                    df.index = df.index.astype('int64') // 10**9
+                    # Convert từ nanoseconds (pandas datetime) sang milliseconds
+                    df.index = df.index.astype('int64') // 10**6
             
             result = format_timeseries_response(
-                df, turbine=turbine, start_time=start_time, end_time=end_time,
+                df, turbine=turbine, start_time=parsed_start_time, end_time=parsed_end_time,
                 mode=mode, data_source_used=data_source_used
             )
             

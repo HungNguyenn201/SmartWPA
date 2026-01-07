@@ -18,8 +18,6 @@ from analytics.models import (
 from ._header import (
     CSV_SEPARATOR,
     CSV_ENCODING,
-    CSV_DATETIME_FORMAT,
-    CSV_DATETIME_DAYFIRST,
     FIELD_MAPPING,
     REQUIRED_FILES,
     OPTIONAL_FILES,
@@ -31,25 +29,174 @@ from ._header import (
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
 
+def _detect_csv_separator(file_path: Path) -> str:
+    """Tự động detect CSV separator từ file."""
+    if not file_path.exists():
+        return CSV_SEPARATOR
+    
+    try:
+        with open(file_path, 'r', encoding=CSV_ENCODING) as f:
+            first_line = f.readline().strip()
+        
+        if not first_line:
+            return CSV_SEPARATOR
+        semicolon_count = first_line.count(';')
+        comma_count = first_line.count(',')
+        
+        if semicolon_count > 0 and comma_count > 0:
+            return ';' if semicolon_count >= comma_count else ','
+        elif semicolon_count > 0:
+            return ';'
+        elif comma_count > 0:
+            return ','
+        else:
+            return CSV_SEPARATOR
+    except Exception as e:
+        logger.warning(f"Error detecting separator for {file_path}: {str(e)}, using default '{CSV_SEPARATOR}'")
+        return CSV_SEPARATOR
+
+
+def _parse_date_time(date_str: str) -> Optional[pd.Timestamp]:
+    """
+    Parse date string với nhiều format khác nhau.
+    Hỗ trợ: dd/mm/yyyy, mm/dd/yyyy, M/d/yyyy, d/M/yyyy (có và không có leading zero)
+    """
+    if pd.isna(date_str) or not date_str:
+        return None
+    
+    date_str = str(date_str).strip()
+    
+    # Thử các format cụ thể trước (với leading zero)
+    date_formats = [
+        '%d/%m/%Y %H:%M',      # 01/01/2012 00:00 (dd/mm/yyyy với leading zero)
+        '%m/%d/%Y %H:%M',      # 07/30/2023 15:55 (mm/dd/yyyy với leading zero)
+        '%d/%m/%Y %H:%M:%S',   # Với seconds (dd/mm/yyyy)
+        '%m/%d/%Y %H:%M:%S',   # Với seconds (mm/dd/yyyy)
+    ]
+    
+    for fmt in date_formats:
+        try:
+            return pd.to_datetime(date_str, format=fmt)
+        except (ValueError, TypeError):
+            continue
+    try:
+        result = pd.to_datetime(date_str, dayfirst=False, errors='raise')
+        if pd.notna(result):
+            return result
+    except (ValueError, TypeError):
+        pass
+    
+    try:
+        result = pd.to_datetime(date_str, dayfirst=True, errors='raise')
+        if pd.notna(result):
+            return result
+    except (ValueError, TypeError):
+        pass
+    
+    try:
+        result = pd.to_datetime(date_str, errors='coerce')
+        if pd.notna(result):
+            return result
+    except (ValueError, TypeError):
+        pass
+    
+    return None
+
+
+def _parse_date_column_vectorized(date_series: pd.Series) -> pd.Series:
+    """
+    Parse date column sử dụng vectorized operations (nhanh hơn nhiều so với apply).
+    Tự động detect format từ sample đầu tiên.
+    """
+    if date_series.empty:
+        return pd.Series(dtype='datetime64[ns]')
+    sample_size = min(10, len(date_series))
+    sample = date_series.head(sample_size).dropna()
+    
+    if sample.empty:
+        return pd.to_datetime(date_series, dayfirst=False, errors='coerce')
+    sample_str = str(sample.iloc[0]).strip() if len(sample) > 0 else None
+    
+    if sample_str and '/' in sample_str:
+        date_part = sample_str.split()[0] if ' ' in sample_str else sample_str
+        parts = date_part.split('/')
+        
+        if len(parts) == 3:
+            first_part = parts[0]
+            second_part = parts[1]
+            if first_part.isdigit() and second_part.isdigit():
+                first_num = int(first_part)
+                second_num = int(second_part)
+    
+                if first_num > 12:
+                    return pd.to_datetime(date_series, dayfirst=True, errors='coerce')
+                elif second_num > 12:
+                    return pd.to_datetime(date_series, dayfirst=False, errors='coerce')
+    
+    result = pd.to_datetime(date_series, dayfirst=False, errors='coerce')
+    success_rate = result.notna().sum() / len(date_series) if len(date_series) > 0 else 0
+    if success_rate < 0.5:
+        result = pd.to_datetime(date_series, dayfirst=True, errors='coerce')
+    
+    return result
+
+
+def _read_csv_with_auto_detect(file_path: Path) -> Optional[pd.DataFrame]:
+    if not file_path.exists():
+        logger.warning(f"CSV file does not exist: {file_path}")
+        return None
+    
+    separator = _detect_csv_separator(file_path)
+    logger.debug(f"Detected separator '{separator}' for file {file_path.name}")
+    
+    try:
+        df = pd.read_csv(file_path, sep=separator, encoding=CSV_ENCODING)
+        
+        if df.empty:
+            logger.warning(f"CSV file is empty: {file_path}")
+            return None
+        
+        if 'DATE_TIME' not in df.columns:
+            logger.warning(f"CSV file missing DATE_TIME column: {file_path}")
+            return None
+        
+        original_count = len(df)
+        df['DATE_TIME'] = _parse_date_column_vectorized(df['DATE_TIME'])
+        df = df.dropna(subset=['DATE_TIME'])
+        
+        parsed_count = len(df)
+        if parsed_count == 0:
+            logger.warning(f"All date values failed to parse in file: {file_path}")
+            return None
+        
+        if parsed_count < original_count:
+            logger.debug(f"Parsed {parsed_count}/{original_count} date values from {file_path.name}")
+        
+        return df
+    except UnicodeDecodeError as e:
+        logger.error(f"Encoding error reading CSV file {file_path}: {str(e)}")
+        return None
+    except pd.errors.EmptyDataError:
+        logger.warning(f"CSV file is empty: {file_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Error reading CSV file {file_path}: {str(e)}", exc_info=True)
+        return None
+
 
 def get_turbine_constants(turbine: Turbines, constants_override: Optional[Dict] = None) -> Dict:
-    # Nếu có constants_override và đủ các constants cần thiết, dùng override
     if constants_override:
         if all(key in constants_override for key in REQUIRED_TURBINE_CONSTANTS):
             return constants_override
         else:
-            # Nếu override không đủ, merge với default
             constants = DEFAULT_TURBINE_CONSTANTS.copy()
             constants.update(constants_override)
-            # Kiểm tra lại xem đã đủ chưa
             if all(key in constants for key in REQUIRED_TURBINE_CONSTANTS):
                 return constants
     
-    # Mặc định dùng constants từ _header.py
     if all(key in DEFAULT_TURBINE_CONSTANTS for key in REQUIRED_TURBINE_CONSTANTS):
         return DEFAULT_TURBINE_CONSTANTS.copy()
     
-    # Nếu không có constants mặc định, báo lỗi
     required_str = ', '.join(REQUIRED_TURBINE_CONSTANTS)
     raise ValueError(
         f"Turbine constants must be configured. Required: {required_str}. "
@@ -59,17 +206,20 @@ def get_turbine_constants(turbine: Turbines, constants_override: Optional[Dict] 
 
 def prepare_dataframe_from_factory_historical(
     turbine: Turbines,
-    start_time: int,
-    end_time: int
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None
 ) -> Optional[pd.DataFrame]:
-    start_dt = pd.to_datetime(start_time, unit='ms')
-    end_dt = pd.to_datetime(end_time, unit='ms')
+    historical_data = FactoryHistorical.objects.filter(turbine=turbine)
     
-    historical_data = FactoryHistorical.objects.filter(
-        turbine=turbine,
-        time_stamp__gte=start_dt,
-        time_stamp__lte=end_dt
-    ).order_by('time_stamp')
+    if start_time is not None and end_time is not None:
+        start_dt = pd.to_datetime(start_time, unit='ms')
+        end_dt = pd.to_datetime(end_time, unit='ms')
+        historical_data = historical_data.filter(
+            time_stamp__gte=start_dt,
+            time_stamp__lte=end_dt
+        )
+    
+    historical_data = historical_data.order_by('time_stamp')
     
     if not historical_data.exists():
         return None
@@ -106,6 +256,92 @@ def prepare_dataframe_from_factory_historical(
     df = df.sort_values('TIMESTAMP')
     
     return df
+
+
+def _load_all_data_from_files(
+    turbine: Turbines,
+    data_dir: str = None
+) -> Optional[pd.DataFrame]:
+    """Load all data from CSV files without time filtering"""
+    if data_dir is None:
+        data_dir = DEFAULT_DATA_DIR
+    
+    farm_id = turbine.farm.id
+    turbine_id = turbine.id
+    
+    data_path = Path(data_dir) / f"Farm{farm_id}" / f"WT{turbine_id}"
+    
+    if not data_path.exists():
+        logger.warning(f"Data directory not found: {data_path}")
+        return None
+    
+    logger.debug(f"Reading all data from files for turbine {turbine_id}, farm {farm_id}")
+    logger.debug(f"Data path: {data_path}")
+    
+    dataframes = []
+    
+    for filename in REQUIRED_FILES:
+        file_path = data_path / filename
+        if not file_path.exists():
+            logger.warning(f"Required file not found: {file_path}")
+            return None
+        
+        try:
+            df = _read_csv_with_auto_detect(file_path)
+            
+            if df is None or df.empty:
+                logger.warning(f"File {filename} is empty or could not be read")
+                return None
+            
+            if 'DATE_TIME' not in df.columns:
+                logger.warning(f"File {filename} missing DATE_TIME column")
+                return None
+            data_column = FIELD_MAPPING[filename]
+            df = df.rename(columns={df.columns[1]: data_column})
+            df = df.rename(columns={'DATE_TIME': 'TIMESTAMP'})
+            df = df[['TIMESTAMP', data_column]]
+            dataframes.append(df)
+            
+            logger.debug(f"Loaded {len(df)} rows from {filename}")
+            
+        except Exception as e:
+            logger.error(f"Error reading {filename}: {str(e)}")
+            return None
+    
+    if len(dataframes) < 2:
+        logger.warning(f"Missing required data files for turbine {turbine_id}")
+        return None
+    
+    df_merged = dataframes[0]
+    for df in dataframes[1:]:
+        df_merged = pd.merge(df_merged, df, on='TIMESTAMP', how='inner')
+    
+    for filename, column_name in OPTIONAL_FILES.items():
+        file_path = data_path / filename
+        if file_path.exists():
+            try:
+                df_opt = _read_csv_with_auto_detect(file_path)
+                
+                if df_opt is None or df_opt.empty:
+                    continue
+                
+                if 'DATE_TIME' not in df_opt.columns:
+                    continue
+                df_opt = df_opt.rename(columns={df_opt.columns[1]: column_name})
+                df_opt = df_opt.rename(columns={'DATE_TIME': 'TIMESTAMP'})
+                df_opt = df_opt[['TIMESTAMP', column_name]]
+                df_merged = pd.merge(df_merged, df_opt, on='TIMESTAMP', how='left')
+                
+            except Exception as e:
+                logger.warning(f"Error reading optional file {filename}: {str(e)}")
+                continue
+    
+    if 'TEMPERATURE' in df_merged.columns:
+        df_merged['TEMPERATURE'] = df_merged['TEMPERATURE'].apply(
+            lambda x: x + 273.15 if pd.notna(x) and x < 223 else x
+        )
+    
+    return df_merged.sort_values('TIMESTAMP').reset_index(drop=True)
 
 
 def prepare_dataframe_from_files(
@@ -156,18 +392,15 @@ def prepare_dataframe_from_files(
             return None
         
         try:
-            df = pd.read_csv(
-                file_path,
-                sep=CSV_SEPARATOR,
-                encoding=CSV_ENCODING
-            )
+            df = _read_csv_with_auto_detect(file_path)
             
-            if df.empty:
-                logger.warning(f"File {filename} is empty")
+            if df is None or df.empty:
+                logger.warning(f"File {filename} is empty or could not be read")
                 continue
             
-            # Parse DATE_TIME với định dạng từ config
-            df['DATE_TIME'] = pd.to_datetime(df['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
+            if 'DATE_TIME' not in df.columns:
+                logger.warning(f"File {filename} missing DATE_TIME column")
+                continue
             
             # Đổi tên cột dữ liệu
             data_column = FIELD_MAPPING[filename]
@@ -205,21 +438,12 @@ def prepare_dataframe_from_files(
         file_path = data_path / filename
         if file_path.exists():
             try:
-                df_opt = pd.read_csv(
-                    file_path,
-                    sep=CSV_SEPARATOR,
-                    encoding=CSV_ENCODING
-                )
+                df_opt = _read_csv_with_auto_detect(file_path)
                 
-                if not df_opt.empty:
-                    # Parse DATE_TIME với định dạng từ config
-                    df_opt['DATE_TIME'] = pd.to_datetime(df_opt['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
-                    
-                    # Đổi tên cột
+                if df_opt is not None and not df_opt.empty and 'DATE_TIME' in df_opt.columns:
                     df_opt = df_opt.rename(columns={df_opt.columns[1]: column_name})
                     df_opt = df_opt.rename(columns={'DATE_TIME': 'TIMESTAMP'})
                     
-                    # Lọc theo thời gian
                     df_opt = df_opt[(df_opt['TIMESTAMP'] >= start_dt) & (df_opt['TIMESTAMP'] <= end_dt)]
                     
                     if not df_opt.empty:
@@ -266,8 +490,8 @@ def validate_time_range(start_time: int, end_time: int) -> Tuple[bool, Optional[
 
 def load_turbine_data(
     turbine: Turbines,
-    start_time: int,
-    end_time: int,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
     preferred_source: str = 'db'
 ) -> Tuple[Optional[pd.DataFrame], str, Dict[str, str]]:
     """
@@ -275,8 +499,8 @@ def load_turbine_data(
     
     Args:
         turbine: Turbine object
-        start_time: Start time in milliseconds
-        end_time: End time in milliseconds
+        start_time: Start time in milliseconds (optional, None means load all)
+        end_time: End time in milliseconds (optional, None means load all)
         preferred_source: 'db' hoặc 'file' - nguồn ưu tiên
     
     Returns:
@@ -292,7 +516,10 @@ def load_turbine_data(
     # Thử nguồn ưu tiên trước
     if preferred_source == 'file':
         logger.debug(f"Trying to load data from file for turbine {turbine.id}")
-        df = prepare_dataframe_from_files(turbine, start_time, end_time, DEFAULT_DATA_DIR)
+        if start_time is not None and end_time is not None:
+            df = prepare_dataframe_from_files(turbine, start_time, end_time, DEFAULT_DATA_DIR)
+        else:
+            df = _load_all_data_from_files(turbine, DEFAULT_DATA_DIR)
         if df is not None and not df.empty:
             data_source_used = 'file'
         else:
@@ -304,13 +531,16 @@ def load_turbine_data(
         if df is not None and not df.empty:
             data_source_used = 'db'
         else:
-            error_info['db'] = "No data found in database for the specified time range"
+            error_info['db'] = "No data found in database" + (f" for the specified time range" if start_time and end_time else "")
             logger.warning(f"Failed to load data from database for turbine {turbine.id}: {error_info['db']}")
             
             # Nếu preferred là 'db' và không có dữ liệu, tự động thử 'file'
             if preferred_source == 'db':
                 logger.debug(f"Attempting fallback to file source for turbine {turbine.id}")
-                df_file = prepare_dataframe_from_files(turbine, start_time, end_time, DEFAULT_DATA_DIR)
+                if start_time is not None and end_time is not None:
+                    df_file = prepare_dataframe_from_files(turbine, start_time, end_time, DEFAULT_DATA_DIR)
+                else:
+                    df_file = _load_all_data_from_files(turbine, DEFAULT_DATA_DIR)
                 if df_file is not None and not df_file.empty:
                     df = df_file
                     data_source_used = 'file'

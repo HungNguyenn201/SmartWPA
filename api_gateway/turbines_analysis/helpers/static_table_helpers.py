@@ -7,13 +7,10 @@ from ._header import (
     HISTORICAL_SOURCE_FIELD_MAP,
     DEFAULT_TIME_STEP_SECONDS,
     DEFAULT_DATA_DIR,
-    CSV_SEPARATOR,
-    CSV_ENCODING,
-    CSV_DATETIME_FORMAT,
-    CSV_DATETIME_DAYFIRST,
     FIELD_MAPPING,
     convert_timestamp_to_datetime
 )
+from .computation_helper import _read_csv_with_auto_detect
 
 
 def calculate_statistics_from_dataframe(
@@ -162,12 +159,10 @@ def prepare_dataframe_from_direction_file(
         if not file_path.exists():
             return None
         
-        df = pd.read_csv(file_path, sep=CSV_SEPARATOR, encoding=CSV_ENCODING)
+        df = _read_csv_with_auto_detect(file_path)
         
-        if df.empty:
+        if df is None or df.empty or 'DATE_TIME' not in df.columns:
             return None
-        
-        df['DATE_TIME'] = pd.to_datetime(df['DATE_TIME'], format=CSV_DATETIME_FORMAT, dayfirst=CSV_DATETIME_DAYFIRST)
         
         direction_column = FIELD_MAPPING.get('DIRECTION_WIND.csv', 'DIRECTION_WIND')
         if direction_column not in df.columns:
