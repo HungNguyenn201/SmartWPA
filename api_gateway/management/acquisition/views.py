@@ -37,13 +37,20 @@ class SmartHISCreateAPIView(APIView):
             address = request.data.get('address', '').strip()
             username = request.data.get('username', '').strip()
             password = request.data.get('password', '').strip()
-            point_check_expired = request.data.get('point_check_expired', 'GT1.Grid.totW').strip()
+            point_check_expired = request.data.get('point_check_expired', '').strip()
 
             if not farm_id:
                 return Response({
                     "success": False,
                     "error": "Farm ID is required",
                     "code": "MISSING_FARM_ID"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not point_check_expired:
+                return Response({
+                    "success": False,
+                    "error": "point_check_expired is required",
+                    "code": "MISSING_POINT_CHECK_EXPIRED"
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             try:
@@ -77,6 +84,27 @@ class SmartHISCreateAPIView(APIView):
                     "error": validation_errors[0]["error"],
                     "code": validation_errors[0]["code"]
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Test connection nếu được yêu cầu
+            test_connection = request.data.get('test_connection', False)
+            if test_connection:
+                try:
+                    from acquisition.smarthis.restful_client import login_and_get_token
+                    token = login_and_get_token(address, username, password)
+                    
+                    if not token:
+                        return Response({
+                            "success": False,
+                            "error": "Connection test failed: Unable to login with provided credentials. Please check address, username, and password.",
+                            "code": "CONNECTION_TEST_FAILED"
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                except Exception as e:
+                    logger.error(f"Connection test error in SmartHISCreateAPIView: {str(e)}", exc_info=True)
+                    return Response({
+                        "success": False,
+                        "error": f"Connection test failed: {str(e)}",
+                        "code": "CONNECTION_TEST_ERROR"
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
             # Kiểm tra xem farm đã có SmartHIS chưa
             if SmartHIS.objects.filter(farm=farm).exists():
@@ -157,7 +185,14 @@ class SmartHISUpdateAPIView(APIView):
             if 'password' in request.data:
                 update_fields['password'] = request.data.get('password', '').strip()
             if 'point_check_expired' in request.data:
-                update_fields['point_check_expired'] = request.data.get('point_check_expired', '').strip()
+                point_check_expired = request.data.get('point_check_expired', '').strip()
+                if not point_check_expired:
+                    return Response({
+                        "success": False,
+                        "error": "point_check_expired cannot be empty",
+                        "code": "INVALID_POINT_CHECK_EXPIRED"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                update_fields['point_check_expired'] = point_check_expired
             if 'token' in request.data:
                 update_fields['token'] = request.data.get('token', '')
 
@@ -175,6 +210,32 @@ class SmartHISUpdateAPIView(APIView):
                     "error": validation_errors[0]["error"],
                     "code": validation_errors[0]["code"]
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Test connection nếu được yêu cầu và có thay đổi connection info
+            test_connection = request.data.get('test_connection', False)
+            if test_connection:
+                # Sử dụng giá trị mới nếu có, nếu không dùng giá trị hiện tại
+                test_address = update_fields.get('address', smart_his.address)
+                test_username = update_fields.get('username', smart_his.username)
+                test_password = update_fields.get('password', smart_his.password)
+                
+                try:
+                    from acquisition.smarthis.restful_client import login_and_get_token
+                    token = login_and_get_token(test_address, test_username, test_password)
+                    
+                    if not token:
+                        return Response({
+                            "success": False,
+                            "error": "Connection test failed: Unable to login with provided credentials. Please check address, username, and password.",
+                            "code": "CONNECTION_TEST_FAILED"
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                except Exception as e:
+                    logger.error(f"Connection test error in SmartHISUpdateAPIView: {str(e)}", exc_info=True)
+                    return Response({
+                        "success": False,
+                        "error": f"Connection test failed: {str(e)}",
+                        "code": "CONNECTION_TEST_ERROR"
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
             # Update SmartHIS
             for field, value in update_fields.items():
