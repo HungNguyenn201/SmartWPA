@@ -73,7 +73,29 @@ def remove_pressure_outliers(data: pd.DataFrame) -> pd.DataFrame:
 
     return data
 
+def preprocess_for_constants(data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Lightweight preprocessing for constant estimation only.
+    
+    Only handles timestamp preparation (resolution, missing timestamps).
+    Does NOT clean temperature/humidity/pressure (not needed for V_cutin/V_cutout estimation).
+    
+    Additional outlier filtering for wind/power happens in constants_estimation module.
+    """
+    data = timestamp_prepare(data)
+    return data
+
+
 def preprocess(data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Full preprocessing for WPA computation.
+    
+    Handles:
+    - Timestamps (resolution, missing periods)
+    - Temperature conversion and outlier removal
+    - Humidity normalization and outlier removal
+    - Pressure outlier removal
+    """
     #Timestamps
     data = timestamp_prepare(data)
 

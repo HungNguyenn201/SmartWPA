@@ -1,6 +1,7 @@
 import pandas as pd
 from .estimate import estimate
 from .yaw_error import yaw_errors
+from .reliability import compute_mttr_mttf_mtbf
 
 def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     obj = {}
@@ -83,5 +84,38 @@ def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     obj['DownPeriodsCount'] = U
     obj['UpPerodsDuration'] = R * resolution.total_seconds()
     obj['DownPerodsDuration'] = U * resolution.total_seconds()
+
+    # ---------------------------------------------------------------------
+    # Reliability KPIs (IEC TS 61400-26-4 inspired, strict mode)
+    #
+    # Mapping (as agreed):
+    # - UP (operating/fit): NORMAL + OVERPRODUCTION
+    # - DOWN (failure/repair): STOP
+    # - Ignored/degraded: PARTIAL_STOP, CURTAILMENT, PARTIAL_CURTAILMENT,
+    #                    UNDERPRODUCTION, MEASUREMENT_ERROR, UNKNOWN
+    #
+    # Formulas (SCADA time-series, IEC-style):
+    #   FailureCount = #(UP -> STOP transitions), with consecutive STOP merged
+    #   MTTR = TotalDownTime / FailureCount
+    #   MTTF = TotalUpTime / FailureCount
+    #   MTBF = MTTF + MTTR
+    # ---------------------------------------------------------------------
+    rel = compute_mttr_mttf_mtbf(
+        classified,
+        up_statuses=["NORMAL", "OVERPRODUCTION"],
+        down_statuses=["STOP"],
+        ignore_statuses=[
+            "PARTIAL_STOP",
+            "CURTAILMENT",
+            "PARTIAL_CURTAILMENT",
+            "UNDERPRODUCTION",
+            "MEASUREMENT_ERROR",
+            "UNKNOWN",
+        ],
+    )
+    obj["Mttr"] = rel.get("Mttr")
+    obj["Mttf"] = rel.get("Mttf")
+    obj["Mtbf"] = rel.get("Mtbf")
+    obj["FailureCount"] = rel.get("FailureCount", 0)
 
     return obj

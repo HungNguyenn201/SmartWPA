@@ -42,24 +42,16 @@ OPTIONAL_FILES = {
 # Turbine Constants
 # ============================================================================
 
-# Required turbine constants for computation
+# Required turbine constants that cannot be derived reliably from SCADA.
+# - V_cutin, V_cutout, V_rated, P_rated are derived from SCADA per computation request.
+# - Swept_area is a physical parameter (rotor swept area) and must be configured per turbine/project.
 REQUIRED_TURBINE_CONSTANTS = [
-    'V_cutin',
-    'V_cutout',
-    'V_rated',
-    'P_rated',
     'Swept_area'
 ]
 
-# Default turbine constants (có thể override trong request nếu cần)
-# Cấu hình theo từng dự án
-DEFAULT_TURBINE_CONSTANTS = {
-    'V_cutin': 2.0,        # Cut-in wind speed (m/s)
-    'V_cutout': 19.5,      # Cut-out wind speed (m/s) per bin check suggestion
-    'V_rated': 12.0,        # Rated wind speed (m/s)
-    'P_rated': 2000.0,      # Rated power (kW)
-    'Swept_area': 20000   # Swept area (m²)
-}
+# Default swept area (m²).
+# Set to None to force client to provide `constants: { "Swept_area": ... }` per request.
+DEFAULT_SWEPT_AREA = 20000
 
 # ============================================================================
 # Data Path Configuration
