@@ -22,7 +22,7 @@ from ._header import (
     REQUIRED_FILES,
     OPTIONAL_FILES,
     REQUIRED_TURBINE_CONSTANTS,
-    DEFAULT_TURBINE_CONSTANTS,
+    DEFAULT_SWEPT_AREA,
     DEFAULT_DATA_DIR
 )
 
@@ -185,22 +185,29 @@ def _read_csv_with_auto_detect(file_path: Path) -> Optional[pd.DataFrame]:
 
 
 def get_turbine_constants(turbine: Turbines, constants_override: Optional[Dict] = None) -> Dict:
-    if constants_override:
-        if all(key in constants_override for key in REQUIRED_TURBINE_CONSTANTS):
-            return constants_override
-        else:
-            constants = DEFAULT_TURBINE_CONSTANTS.copy()
-            constants.update(constants_override)
-            if all(key in constants for key in REQUIRED_TURBINE_CONSTANTS):
-                return constants
-    
-    if all(key in DEFAULT_TURBINE_CONSTANTS for key in REQUIRED_TURBINE_CONSTANTS):
-        return DEFAULT_TURBINE_CONSTANTS.copy()
-    
+    """
+    Return only constants that cannot be derived reliably from SCADA.
+
+    Note:
+    - V_cutin / V_cutout / V_rated / P_rated are derived from SCADA per computation.
+    - Swept_area must be provided (physical turbine parameter).
+    """
+    constants_override = constants_override or {}
+    constants: Dict = {}
+
+    # Swept area (m²) is required for capacity-factor calculation.
+    if "Swept_area" in constants_override and constants_override["Swept_area"] is not None:
+        constants["Swept_area"] = float(constants_override["Swept_area"])
+    elif DEFAULT_SWEPT_AREA is not None:
+        constants["Swept_area"] = float(DEFAULT_SWEPT_AREA)
+
+    if all(key in constants for key in REQUIRED_TURBINE_CONSTANTS):
+        return constants
+
     required_str = ', '.join(REQUIRED_TURBINE_CONSTANTS)
     raise ValueError(
         f"Turbine constants must be configured. Required: {required_str}. "
-        f"Please configure DEFAULT_TURBINE_CONSTANTS in _header.py or provide constants in request."
+        f"Please configure DEFAULT_SWEPT_AREA in _header.py or provide constants in request."
     )
 
 
@@ -556,11 +563,31 @@ def _get_or_create_computation(
     farm: Farm,
     computation_type: str,
     start_time: int,
-    end_time: int
+    end_time: int,
+    constants: Optional[Dict] = None
 ) -> Computation:
     """
     Helper function để tạo hoặc lấy computation với type cụ thể.
+    
+    Args:
+        constants: Turbine operating constants to save (V_cutin, V_cutout, V_rated, P_rated, Swept_area)
     """
+    defaults = {
+        'created_at': timezone.now()
+    }
+    
+    # Add constants to defaults if provided
+    # Note: Swept_area is a fixed constant (DEFAULT_SWEPT_AREA) and not stored per computation
+    if constants:
+        if 'V_cutin' in constants:
+            defaults['v_cutin'] = float(constants['V_cutin'])
+        if 'V_cutout' in constants:
+            defaults['v_cutout'] = float(constants['V_cutout'])
+        if 'V_rated' in constants:
+            defaults['v_rated'] = float(constants['V_rated'])
+        if 'P_rated' in constants:
+            defaults['p_rated'] = float(constants['P_rated'])
+    
     computation, _ = Computation.objects.update_or_create(
         turbine=turbine,
         farm=farm,
@@ -568,9 +595,7 @@ def _get_or_create_computation(
         start_time=start_time,
         end_time=end_time,
         is_latest=True,
-        defaults={
-            'created_at': timezone.now()
-        }
+        defaults=defaults
     )
     return computation
 
@@ -581,10 +606,20 @@ def save_computation_results(
     farm: Farm,
     start_time: int,
     end_time: int,
-    computation_result: Dict
+    computation_result: Dict,
+    constants: Optional[Dict] = None
 ) -> Dict[str, Computation]:
     """
     Lưu computation results vào database với từng computation type riêng biệt.
+    
+    Args:
+        turbine: Turbine object
+        farm: Farm object
+        start_time: Start time in milliseconds
+        end_time: End time in milliseconds
+        computation_result: Computation results dictionary
+        constants: Turbine operating constants (V_cutin, V_cutout, V_rated, P_rated, Swept_area)
+                   These will be saved to each Computation record for traceability.
     
     Returns:
         Dict với keys là computation_type và values là Computation objects đã lưu.
@@ -612,7 +647,7 @@ def save_computation_results(
     # Lưu Classification computation
     if 'classification' in computation_result:
         classification_computation = _get_or_create_computation(
-            turbine, farm, 'classification', save_start_time, save_end_time
+            turbine, farm, 'classification', save_start_time, save_end_time, constants
         )
         save_classification(classification_computation, computation_result['classification'])
         saved_computations['classification'] = classification_computation
@@ -620,7 +655,7 @@ def save_computation_results(
     # Lưu Power Curve computation
     if 'power_curves' in computation_result:
         power_curve_computation = _get_or_create_computation(
-            turbine, farm, 'power_curve', save_start_time, save_end_time
+            turbine, farm, 'power_curve', save_start_time, save_end_time, constants
         )
         save_power_curves(power_curve_computation, computation_result['power_curves'])
         saved_computations['power_curve'] = power_curve_computation
@@ -628,7 +663,7 @@ def save_computation_results(
     # Lưu Weibull computation
     if 'weibull' in computation_result:
         weibull_computation = _get_or_create_computation(
-            turbine, farm, 'weibull', save_start_time, save_end_time
+            turbine, farm, 'weibull', save_start_time, save_end_time, constants
         )
         save_weibull(weibull_computation, computation_result['weibull'])
         saved_computations['weibull'] = weibull_computation
@@ -637,7 +672,7 @@ def save_computation_results(
     indicators = computation_result.get('indicators', {})
     if indicators:
         indicators_computation = _get_or_create_computation(
-            turbine, farm, 'indicators', save_start_time, save_end_time
+            turbine, farm, 'indicators', save_start_time, save_end_time, constants
         )
         save_indicators(indicators_computation, indicators)
         saved_computations['indicators'] = indicators_computation
@@ -645,7 +680,7 @@ def save_computation_results(
         # Lưu Yaw Error computation (nếu có)
         if 'YawLag' in indicators:
             yaw_error_computation = _get_or_create_computation(
-                turbine, farm, 'yaw_error', save_start_time, save_end_time
+                turbine, farm, 'yaw_error', save_start_time, save_end_time, constants
             )
             save_yaw_error(yaw_error_computation, indicators['YawLag'])
             saved_computations['yaw_error'] = yaw_error_computation

@@ -13,7 +13,10 @@ class Computation(models.Model):
     computation_type = models.CharField(max_length=50, help_text="Type of computation (power_curve, classification, weibull, etc.)")
     created_at = models.DateTimeField(auto_now_add=True)
     is_latest = models.BooleanField(default=True, help_text="Whether this is the latest computation for this time range")
-    
+    v_cutin = models.FloatField(null=True, blank=True, help_text="Cut-in wind speed (m/s) - estimated from SCADA")
+    v_cutout = models.FloatField(null=True, blank=True, help_text="Cut-out wind speed (m/s) - estimated from SCADA")
+    v_rated = models.FloatField(null=True, blank=True, help_text="Rated wind speed (m/s) - estimated from SCADA")
+    p_rated = models.FloatField(null=True, blank=True, help_text="Rated power (kW) - estimated from SCADA")
     class Meta:
         indexes = [
             models.Index(fields=['turbine', 'computation_type', '-start_time']),

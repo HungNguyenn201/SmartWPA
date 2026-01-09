@@ -16,6 +16,8 @@ from api_gateway.turbines_analysis.helpers.computation_helper import (
     load_turbine_data
 )
 from analytics.computation.smartWPA import get_wpa
+from analytics.computation.normalize import preprocess_for_constants
+from analytics.computation.constants_estimation import derive_turbine_constants_from_scada, ConstantEstimationConfig
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -63,8 +65,10 @@ class ComputationAPIView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Lấy constants và data_source
+            constants_override = data.get('constants') or {}
             try:
-                constants = get_turbine_constants(turbine, data.get('constants'))
+                # Only non-derivable constants (e.g., Swept_area)
+                base_constants = get_turbine_constants(turbine, constants_override)
             except ValueError as e:
                 return Response({
                     "success": False,
@@ -80,7 +84,6 @@ class ComputationAPIView(APIView):
                     "code": "INVALID_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Load dữ liệu
             df, data_source_used, error_info = load_turbine_data(
                 turbine, start_time, end_time, preferred_source
             )
@@ -107,21 +110,37 @@ class ComputationAPIView(APIView):
                     "error": "Insufficient data points. Need at least 6 data points (1 hour minimum)",
                     "code": "INSUFFICIENT_DATA"
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+        
+            df_for_constants = preprocess_for_constants(df.copy())
+            
+
+            cfg = ConstantEstimationConfig()
+            constants, _ = derive_turbine_constants_from_scada(
+                df_for_constants,
+                base_constants=base_constants,
+                cfg=cfg,
+                include_debug=False,
+            )
             
             # Computation
             try:
                 computation_result = get_wpa(df, constants)
             except ValueError as e:
+                # Important: log server-side as well (previously only returned to client)
+                logger.error(
+                    f"Computation failed for turbine={turbine_id}, range=[{start_time},{end_time}], "
+                    f"data_source={preferred_source}, constants_used={constants}. Error: {str(e)}",
+                    exc_info=True,
+                )
                 return Response({
                     "success": False,
                     "error": f"Computation failed: {str(e)}",
                     "code": "COMPUTATION_ERROR"
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Save results - lưu với từng computation type riêng biệt
             try:
                 saved_computations = save_computation_results(
-                    turbine, turbine.farm, start_time, end_time, computation_result
+                    turbine, turbine.farm, start_time, end_time, computation_result, constants=constants
                 )
             except Exception as e:
                 logger.error(f"Failed to save computation results: {str(e)}", exc_info=True)
@@ -135,6 +154,7 @@ class ComputationAPIView(APIView):
             output = format_computation_output(computation_result)
             output['data_source_used'] = data_source_used
             output['data_points_count'] = len(df)
+            output['constants_used'] = constants
             
             # Thêm computation IDs cho từng type
             output['computation_ids'] = {

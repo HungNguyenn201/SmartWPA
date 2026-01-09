@@ -87,3 +87,4 @@ celerybeat.pid
 # README.txt
 test.py
 test_turbine_constants.py
+docs/
