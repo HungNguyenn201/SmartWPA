@@ -46,13 +46,38 @@ class TurbinePowerCurveAPIView(APIView):
                 return permission_response
             
             mode = request.query_params.get("mode", "global")
-            valid_modes = ['global', 'yearly', 'quarterly', 'monthly', 'day/night']
+            valid_modes = ['global', 'time']
             if mode not in valid_modes:
                 return Response({
                     "success": False,
                     "error": f"mode must be one of: {', '.join(valid_modes)}",
                     "code": "INVALID_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
+            time_type = None
+            if mode == 'time':
+                time_type = request.query_params.get('time_type')
+                valid_time_types = ['yearly', 'seasonally', 'monthly', 'day_night']
+                
+                if not time_type:
+                    return Response({
+                        "success": False,
+                        "error": "time_type must be specified when mode is 'time'",
+                        "code": "MISSING_PARAMETERS"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                if time_type not in valid_time_types:
+                    return Response({
+                        "success": False,
+                        "error": f"time_type must be one of: {', '.join(valid_time_types)}",
+                        "code": "INVALID_PARAMETERS"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            analysis_mode = 'global' if mode == 'global' else time_type
+            if analysis_mode == 'day_night':
+                analysis_mode = 'day/night'
+            elif analysis_mode == 'seasonally':
+                analysis_mode = 'quarterly'
             
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
@@ -91,16 +116,16 @@ class TurbinePowerCurveAPIView(APIView):
                     "code": "NO_RESULT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            analyses = computation.power_curve_analyses.filter(analysis_mode=mode)
+            analyses = computation.power_curve_analyses.filter(analysis_mode=analysis_mode)
             if not analyses.exists():
-                logger.warning(f"No power curve data for mode '{mode}' for turbine {turbine_id}")
+                logger.warning(f"No power curve data for mode '{mode}' time_type '{time_type}' for turbine {turbine_id}")
                 return Response({
                     "success": False,
-                    "error": f"No power curve data for mode '{mode}'",
+                    "error": f"No power curve data for mode '{mode}'" + (f" with time_type '{time_type}'" if time_type else ""),
                     "code": "NO_RESULT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
-            if mode == 'global':
+            if analysis_mode == 'global':
                 analysis = analyses.first()
                 pts = analysis.power_curve_points.all().order_by('wind_speed')
                 power_curve = [
@@ -125,6 +150,7 @@ class TurbinePowerCurveAPIView(APIView):
                 "start_time": computation.start_time,
                 "end_time": computation.end_time,
                 "mode": mode,
+                "time_type": time_type,
                 "power_curve": power_curve
             }
             
@@ -184,13 +210,38 @@ class FarmPowerCurveAPIView(APIView):
                 }, status=status.HTTP_404_NOT_FOUND)
             
             mode = request.query_params.get("mode", "global")
-            valid_modes = ['global', 'yearly', 'quarterly', 'monthly', 'day/night']
+            valid_modes = ['global', 'time']
             if mode not in valid_modes:
                 return Response({
                     "success": False,
                     "error": f"mode must be one of: {', '.join(valid_modes)}",
                     "code": "INVALID_PARAMETERS"
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
+            time_type = None
+            if mode == 'time':
+                time_type = request.query_params.get('time_type')
+                valid_time_types = ['yearly', 'seasonally', 'monthly', 'day_night']
+                
+                if not time_type:
+                    return Response({
+                        "success": False,
+                        "error": "time_type must be specified when mode is 'time'",
+                        "code": "MISSING_PARAMETERS"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                if time_type not in valid_time_types:
+                    return Response({
+                        "success": False,
+                        "error": f"time_type must be one of: {', '.join(valid_time_types)}",
+                        "code": "INVALID_PARAMETERS"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            analysis_mode = 'global' if mode == 'global' else time_type
+            if analysis_mode == 'day_night':
+                analysis_mode = 'day/night'
+            elif analysis_mode == 'seasonally':
+                analysis_mode = 'quarterly'
             
             computations = Computation.objects.filter(
                 turbine__in=turbines,
@@ -215,11 +266,11 @@ class FarmPowerCurveAPIView(APIView):
                 if not computation:
                     continue
                 
-                analyses = computation.power_curve_analyses.filter(analysis_mode=mode)
+                analyses = computation.power_curve_analyses.filter(analysis_mode=analysis_mode)
                 if not analyses.exists():
                     continue
                 
-                if mode == 'global':
+                if analysis_mode == 'global':
                     analysis = analyses.first()
                     pts = analysis.power_curve_points.all().order_by('wind_speed')
                     curve = [
@@ -248,10 +299,10 @@ class FarmPowerCurveAPIView(APIView):
                 })
             
             if not power_curves:
-                logger.warning(f"No power curve data for mode '{mode}' in any turbine of farm {farm_id}")
+                logger.warning(f"No power curve data for mode '{mode}' time_type '{time_type}' in any turbine of farm {farm_id}")
                 return Response({
                     "success": False,
-                    "error": f"No data for mode '{mode}' in any turbine",
+                    "error": f"No data for mode '{mode}'" + (f" with time_type '{time_type}'" if time_type else "") + " in any turbine",
                     "code": "NO_RESULT_FOUND"
                 }, status=status.HTTP_404_NOT_FOUND)
             
@@ -261,6 +312,7 @@ class FarmPowerCurveAPIView(APIView):
                 "start_time": latest_start_time,
                 "end_time": latest_end_time,
                 "mode": mode,
+                "time_type": time_type,
                 "power_curves": power_curves
             }
             

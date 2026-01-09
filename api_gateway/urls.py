@@ -68,7 +68,9 @@ urlpatterns = [
     path('api/users/create/', AdminCreateUserAPIView.as_view(), name='admin-create-user'),
     path('api/users/investor/create/', InvestorCreateUserAPIView.as_view(), name='investor-create-user'),
     path('api/users/farm-admin/create/', FarmAdminCreateUserAPIView.as_view(), name='farm-admin-create-user'),
-    path('api/users/<int:user_id>/', UserInfoView.as_view(), name='user-info'),
+    path('api/users/info/', UserInfoView.as_view(), name='current-user-info'),
+    path('api/users/info/<int:user_id>/', UserInfoView.as_view(), name='user-info'),
+    path('api/users/<int:user_id>/', UserInfoView.as_view(), name='user-info-by-id'),
     path('api/users/<int:user_id>/update/', UserUpdateAPIView.as_view(), name='user-update'),
     path('api/users/<int:user_id>/delete/', UserDeleteAPIView.as_view(), name='user-delete'),
     

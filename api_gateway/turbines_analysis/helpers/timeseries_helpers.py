@@ -164,9 +164,6 @@ def format_timeseries_response(
         "data": df.to_dict('records')
     }
     
-    if data_source_used:
-        result["data_source_used"] = data_source_used
-    
     return result
 
 

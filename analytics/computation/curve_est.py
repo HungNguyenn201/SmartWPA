@@ -11,9 +11,9 @@ def get_power_curve(data: pd.DataFrame, groupby: Literal["global", "yearly", "qu
     elif (groupby == "yearly"):
         groups = data.groupby(pd.Grouper(freq='YS'), observed=True)
     elif (groupby == "quarterly"):
-        groups = data.groupby(pd.Grouper(freq='QS'), observed=True)
+        groups = data.groupby(data.index.quarter, observed=True)
     elif (groupby == "monthly"):
-        groups = data.groupby(pd.Grouper(freq='MS'), observed=True)
+        groups = data.groupby(data.index.month, observed=True)
     elif (groupby == "day/night"):
         hour = data.index.hour
         data['time_group'] = np.select(
@@ -23,24 +23,22 @@ def get_power_curve(data: pd.DataFrame, groupby: Literal["global", "yearly", "qu
         )
         groups = data.groupby(data['time_group'], observed=True)
     
-    def get_key(groupby: Literal["global", "yearly", "quarterly", "monthly", "day/night"], timestamp=pd.Timestamp) -> str:
+    def get_key(groupby: Literal["global", "yearly", "quarterly", "monthly", "day/night"], group_key) -> str:
         if (groupby == "global"):
             return None
         elif (groupby == "yearly"):
-            return timestamp.year
+            return str(group_key.year) if isinstance(group_key, pd.Timestamp) else str(group_key)
         elif (groupby == "quarterly"):
-            return f"{timestamp.quarter}-{timestamp.year}"
+            return str(group_key)
         elif (groupby == "monthly"):
-            return f"{timestamp.month}-{timestamp.year}"
+            return str(group_key)
         elif (groupby == "day/night"):
-            if (timestamp.hour < 6 or timestamp.hour >= 18):
-                return "night"
-            return "day"
+            return str(group_key).lower()
 
-    for _, grps in groups:
+    for group_key, grps in groups:
         if (len(grps) == 0): continue
         grps = grps.copy()
-        key = get_key(groupby, grps.iloc[0].name)
+        key = get_key(groupby, group_key)
         aggs = grps.groupby('bin', observed=True)['ACTIVE_POWER'].mean()
 
         if (key != None):

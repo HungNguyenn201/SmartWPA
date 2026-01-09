@@ -81,20 +81,23 @@ def calculate_performance(
     
     timestamps = result_df['timestamp'].values
     
+    # Xử lý đúng đơn vị timestamp (milliseconds từ timeseries_helpers)
     if len(timestamps) < 2:
-        sampling_time_sec = 600.0
+        sampling_time_ms = 600000.0  # 10 phút mặc định (milliseconds)
     else:
         time_diffs = np.diff(timestamps)
         time_diffs = time_diffs[time_diffs > 0]
         if len(time_diffs) == 0:
-            sampling_time_sec = 600.0
+            sampling_time_ms = 600000.0
         else:
-            sampling_time_sec = float(np.mean(time_diffs))
+            # Timestamps đang ở milliseconds, nên time_diffs cũng là milliseconds
+            sampling_time_ms = float(np.mean(time_diffs))
     
-    if sampling_time_sec <= 0 or not np.isfinite(sampling_time_sec):
-        sampling_time_sec = 600.0
+    if sampling_time_ms <= 0 or not np.isfinite(sampling_time_ms):
+        sampling_time_ms = 600000.0
     
-    sampling_time_hours = sampling_time_sec / 3600.0
+    # Convert milliseconds → hours
+    sampling_time_hours = sampling_time_ms / (1000 * 3600.0)
     result_df['energy'] = result_df['power'] * sampling_time_hours
     
     if variation <= 50:
@@ -130,16 +133,31 @@ def calculate_performance(
         if month_energy_kwh <= 0 or not np.isfinite(month_energy_kwh):
             continue
         
-        first_timestamp = month_data.index.min()
-        last_timestamp = month_data.index.max()
-        actual_days_in_data = (last_timestamp - first_timestamp).total_seconds() / (24 * 3600)
+        # Tính số ngày thực tế có data dựa trên số samples và sampling interval
+        num_samples = len(month_data)
+        actual_hours_in_data = num_samples * sampling_time_hours
+        actual_days_in_data = actual_hours_in_data / 24.0
         
         if actual_days_in_data <= 0:
             actual_days_in_data = 1.0
         
+        # Giới hạn actual_days_in_data tối đa bằng số ngày trong tháng
+        days_in_month = month_start.days_in_month
+        actual_days_in_data = min(actual_days_in_data, days_in_month)
+        
         days_in_year = 365.0
         
-        energy_per_year_kwh = (month_energy_kwh / actual_days_in_data) * days_in_year
+        # Scale từ monthly energy lên annual energy
+        # Chỉ scale khi có đủ data (ít nhất 7 ngày)
+        if actual_days_in_data >= 7:
+            # Scale hợp lý: (month_energy / actual_days) * 365
+            energy_per_year_kwh = (month_energy_kwh / actual_days_in_data) * days_in_year
+        else:
+            # Nếu ít data (< 7 ngày), giới hạn scale factor
+            # Tối đa scale từ 7 ngày lên 365 ngày (factor = 365/7 ≈ 52)
+            max_scale_factor = days_in_year / 7.0
+            scale_factor = min(days_in_year / actual_days_in_data, max_scale_factor)
+            energy_per_year_kwh = month_energy_kwh * scale_factor
         
         if not np.isfinite(energy_per_year_kwh) or energy_per_year_kwh <= 0:
             continue

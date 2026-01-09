@@ -111,7 +111,12 @@ class TurbineTimeseriesAPIView(APIView):
             
             if mode != 'raw':
                 if not pd.api.types.is_datetime64_any_dtype(df.index):
-                    df.index = pd.to_datetime(df.index, unit='s')
+                    # Kiểm tra xem timestamp là milliseconds hay seconds
+                    # Timestamp từ timeseries_helpers đã được convert về milliseconds
+                    if df.index.max() > 1e12:
+                        df.index = pd.to_datetime(df.index, unit='ms')
+                    else:
+                        df.index = pd.to_datetime(df.index, unit='s')
                 
                 df = resample_dataframe(df, mode)
                 

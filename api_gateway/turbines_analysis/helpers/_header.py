@@ -54,8 +54,8 @@ REQUIRED_TURBINE_CONSTANTS = [
 # Default turbine constants (có thể override trong request nếu cần)
 # Cấu hình theo từng dự án
 DEFAULT_TURBINE_CONSTANTS = {
-    'V_cutin': 2.84,        # Cut-in wind speed (m/s)
-    'V_cutout': 16.72,      # Cut-out wind speed (m/s) per bin check suggestion
+    'V_cutin': 2.0,        # Cut-in wind speed (m/s)
+    'V_cutout': 19.5,      # Cut-out wind speed (m/s) per bin check suggestion
     'V_rated': 12.0,        # Rated wind speed (m/s)
     'P_rated': 2000.0,      # Rated power (kW)
     'Swept_area': 20000   # Swept area (m²)
