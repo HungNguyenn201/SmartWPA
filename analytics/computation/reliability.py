@@ -154,6 +154,9 @@ def compute_mttr_mttf_mtbf(
 ) -> dict:
     """
     Compute reliability metrics (strict mode) from classified status.
+    
+    Based on paper: "Reliability Testing of Wind Farm Devices Based on the Mean Time to Failures"
+    (Duer et al., Energies 2023, 16, 2827)
 
     Formulas (applied to SCADA time-series, IEC-style):
       FailureCount = #(UP -> STOP transitions, with consecutive STOP merged)
@@ -161,8 +164,13 @@ def compute_mttr_mttf_mtbf(
       MTTR = (TotalDownTime) / FailureCount
         where TotalDownTime = sum(duration of STOP intervals)
 
-      MTTF = (TotalUpTime) / FailureCount
-        where TotalUpTime counts only UP statuses (NORMAL + OVERPRODUCTION) and excludes ignore/degraded.
+      MTTF = (t₁ + t₂ + ... + tₘ) / FailureCount
+        where tᵢ = time to failure i (UP time between failures)
+        - t₁ = UP time from dataset start to first failure
+        - t₂ = UP time from after failure 1 to failure 2
+        - ...
+        - tₘ = UP time from after failure (m-1) to failure m
+        NOTE: Does NOT include UP time after the last failure (per paper definition)
 
       MTBF = MTTF + MTTR
     """
@@ -198,16 +206,40 @@ def compute_mttr_mttf_mtbf(
         }
 
     total_down_s = float(sum(e.duration_s for e in events))
-    total_up_s = float((state == "UP").sum() * dt_s)
-
+    
+    # Calculate MTTF according to paper formula: MTTF = (t₁ + t₂ + ... + tₘ) / m
+    # where tᵢ = UP time between failures (time to failure i)
+    # This means we only count UP time BETWEEN failures, NOT after the last failure
+    idx = classified.sort_index().index
+    total_up_intervals = 0.0
+    prev_event_end = None
+    
+    for i, event in enumerate(events):
+        if prev_event_end is not None:
+            # Calculate UP time between prev_event_end and event.start
+            # Only count samples with state == "UP" in this interval
+            up_mask = (idx >= prev_event_end) & (idx < event.start) & (state == "UP")
+            up_interval = float(up_mask.sum() * dt_s)
+            total_up_intervals += up_interval
+        else:
+            # First failure: calculate UP time from dataset start to first failure
+            up_mask = (idx < event.start) & (state == "UP")
+            up_interval = float(up_mask.sum() * dt_s)
+            total_up_intervals += up_interval
+        
+        prev_event_end = event.end
+    
+    # NOTE: We do NOT include UP time after the last failure
+    # Per paper definition: tᵢ is "time to failure", not "time after failure"
+    
     mttr = total_down_s / failure_count
-    mttf = total_up_s / failure_count
+    mttf = total_up_intervals / failure_count
     mtbf = mttr + mttf
 
     return {
         "FailureCount": failure_count,
         "TotalDownTime": total_down_s,
-        "TotalUpTime": total_up_s,
+        "TotalUpTime": total_up_intervals,  # Changed: now only UP time between failures
         "Mttr": mttr,
         "Mttf": mttf,
         "Mtbf": mtbf,
