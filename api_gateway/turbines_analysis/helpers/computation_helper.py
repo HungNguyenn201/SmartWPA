@@ -566,18 +566,19 @@ def _get_or_create_computation(
     end_time: int,
     constants: Optional[Dict] = None
 ) -> Computation:
-    """
-    Helper function để tạo hoặc lấy computation với type cụ thể.
+
+    Computation.objects.filter(
+        turbine=turbine,
+        farm=farm,
+        computation_type=computation_type,
+        is_latest=True
+    ).update(is_latest=False)
     
-    Args:
-        constants: Turbine operating constants to save (V_cutin, V_cutout, V_rated, P_rated, Swept_area)
-    """
     defaults = {
-        'created_at': timezone.now()
+        'created_at': timezone.now(),
+        'is_latest': True
     }
     
-    # Add constants to defaults if provided
-    # Note: Swept_area is a fixed constant (DEFAULT_SWEPT_AREA) and not stored per computation
     if constants:
         if 'V_cutin' in constants:
             defaults['v_cutin'] = float(constants['V_cutin'])
@@ -588,15 +589,19 @@ def _get_or_create_computation(
         if 'P_rated' in constants:
             defaults['p_rated'] = float(constants['P_rated'])
     
-    computation, _ = Computation.objects.update_or_create(
+    computation, created = Computation.objects.update_or_create(
         turbine=turbine,
         farm=farm,
         computation_type=computation_type,
         start_time=start_time,
         end_time=end_time,
-        is_latest=True,
         defaults=defaults
     )
+    
+    if not created:
+        computation.is_latest = True
+        computation.save(update_fields=['is_latest'])
+    
     return computation
 
 
@@ -609,6 +614,12 @@ def save_computation_results(
     computation_result: Dict,
     constants: Optional[Dict] = None
 ) -> Dict[str, Computation]:
+    """
+    Lưu computation results vào database với từng computation type riêng biệt.
+    
+    IMPORTANT: Trước khi lưu data mới, xóa TẤT CẢ data cũ của computation với cùng
+    start_time/end_time để đảm bảo không có data duplicate hoặc data cũ còn sót lại.
+    """
     """
     Lưu computation results vào database với từng computation type riêng biệt.
     
