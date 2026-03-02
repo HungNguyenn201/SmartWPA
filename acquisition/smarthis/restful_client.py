@@ -56,16 +56,17 @@ def load_cert():
     try:
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
         ssl_context.load_verify_locations(cafile=CA_CERT_PATH)
-        
+
         password_file = read_file(PASSWORD_PATH)
         if password_file is None or len(password_file) == 0:
-            logger.error(f"Password file not found or empty: {PASSWORD_PATH}")
-            raise FileNotFoundError(f"Password file not found: {PASSWORD_PATH}")
-        
+            logger.error("Client key password file not found or empty: %s", PASSWORD_PATH)
+            raise FileNotFoundError(f"Password not provided: {PASSWORD_PATH}")
+        password = password_file[0].strip() if password_file[0] else None
+
         ssl_context.load_cert_chain(
             certfile=CLIENT_CERT_PATH,
             keyfile=CLIENT_KEY_PATH,
-            password=password_file[0].strip() if password_file[0] else None
+            password=password,
         )
         return ssl_context
     except FileNotFoundError as e:

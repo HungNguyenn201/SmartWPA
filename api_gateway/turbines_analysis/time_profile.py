@@ -11,6 +11,7 @@ from analytics.models import Computation, ClassificationPoint
 from acquisition.models import FactoryHistorical
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 from api_gateway.turbines_analysis.helpers.time_profile_helpers import (
     prepare_combined_dataframe_from_sources,
     calculate_profile
@@ -29,20 +30,12 @@ class TimeProfileAPIView(APIView):
                 turbine_id = request.query_params.get('turbine_id')
             
             if not turbine_id:
-                return Response({
-                    "success": False,
-                    "error": "Turbine ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Turbine ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             permission_response = check_object_permission(
                 request, self, turbine,
@@ -58,20 +51,12 @@ class TimeProfileAPIView(APIView):
             valid_sources = ['power', 'wind_speed', 'wind_direction', 'temperature', 'pressure', 'humidity']
             for source in sources:
                 if source not in valid_sources:
-                    return Response({
-                        "success": False,
-                        "error": f"sources must be one of: {', '.join(valid_sources)}",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response(f"sources must be one of: {', '.join(valid_sources)}", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             profile = request.query_params.get('profile', 'hourly').lower()
             valid_profiles = ['hourly', 'daily', 'monthly', 'seasonally']
             if profile not in valid_profiles:
-                return Response({
-                    "success": False,
-                    "error": f"profile must be one of: {', '.join(valid_profiles)}",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(f"profile must be one of: {', '.join(valid_profiles)}", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
@@ -80,21 +65,13 @@ class TimeProfileAPIView(APIView):
                 try:
                     start_time = int(start_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time must be an integer (Unix timestamp in milliseconds)",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("start_time must be an integer (Unix timestamp in milliseconds)", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             if end_time:
                 try:
                     end_time = int(end_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "end_time must be an integer (Unix timestamp in milliseconds)",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("end_time must be an integer (Unix timestamp in milliseconds)", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             result = self._get_turbine_time_profile(
                 turbine,
@@ -107,15 +84,11 @@ class TimeProfileAPIView(APIView):
             if isinstance(result, Response):
                 return result
             
-            return Response(result)
+            return success_response(result["data"])
         
         except Exception as e:
             logger.error(f"Error in TimeProfileAPIView.get for turbine {turbine_id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _get_turbine_time_profile(self, turbine, sources, start_time, end_time, profile):
         try:
@@ -144,11 +117,7 @@ class TimeProfileAPIView(APIView):
                 if not computation:
                     logger.warning(f"No classification computation found for turbine {turbine.id}")
                     if not has_historical_sources:
-                        return Response({
-                            "success": False,
-                            "error": "No classification computation found for this turbine",
-                            "code": "NO_COMPUTATION"
-                        }, status=status.HTTP_404_NOT_FOUND)
+                        return error_response("No classification computation found for this turbine", "NO_COMPUTATION", status.HTTP_404_NOT_FOUND)
             
             classification_points_dict = {}
             if computation:
@@ -241,21 +210,13 @@ class TimeProfileAPIView(APIView):
             
             if combined_df is None or combined_df.empty:
                 logger.warning(f"No data found for turbine {turbine.id} for sources {sources} in time range {start_time}-{end_time}")
-                return Response({
-                    "success": False,
-                    "error": "No data available for the specified time range and sources",
-                    "code": "NO_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No data available for the specified time range and sources", "NO_DATA", status.HTTP_404_NOT_FOUND)
             
             profile_data = calculate_profile(combined_df, sources, profile)
             
             if not profile_data:
                 logger.error(f"Error calculating profile for turbine {turbine.id}, profile={profile}")
-                return Response({
-                    "success": False,
-                    "error": "Error calculating time profile",
-                    "code": "CALCULATION_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response("Error calculating time profile", "CALCULATION_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             result = {
                 "success": True,
@@ -276,8 +237,4 @@ class TimeProfileAPIView(APIView):
         
         except Exception as e:
             logger.error(f"Error in TimeProfileAPIView._get_turbine_time_profile for turbine {turbine.id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

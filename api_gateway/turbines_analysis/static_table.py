@@ -10,6 +10,7 @@ from analytics.models import Computation, ClassificationPoint
 from acquisition.models import FactoryHistorical
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 from api_gateway.turbines_analysis.helpers.static_table_helpers import (
     calculate_statistics_from_dataframe,
     prepare_dataframe_from_classification_points,
@@ -30,20 +31,12 @@ class StaticTableAPIView(APIView):
                 turbine_id = request.query_params.get('turbine_id')
             
             if not turbine_id:
-                return Response({
-                    "success": False,
-                    "error": "Turbine ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Turbine ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             permission_response = check_object_permission(
                 request, self, turbine,
@@ -59,11 +52,7 @@ class StaticTableAPIView(APIView):
             valid_source_types = ['wind_speed', 'power', 'wind_direction']
             for source_type in sources:
                 if source_type not in valid_source_types:
-                    return Response({
-                        "success": False,
-                        "error": f"source must be one of: {', '.join(valid_source_types)}",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response(f"source must be one of: {', '.join(valid_source_types)}", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
@@ -72,21 +61,13 @@ class StaticTableAPIView(APIView):
                 try:
                     start_time = int(start_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time must be an integer",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("start_time must be an integer", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             if end_time:
                 try:
                     end_time = int(end_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "end_time must be an integer",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("end_time must be an integer", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             all_results = {}
             for source_type in sources:
@@ -101,24 +82,13 @@ class StaticTableAPIView(APIView):
                     all_results[source_type] = result['data']
             
             if not all_results:
-                return Response({
-                    "success": False,
-                    "error": "Error calculating statistics for all sources",
-                    "code": "PROCESSING_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response("Error calculating statistics for all sources", "PROCESSING_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            return Response({
-                "success": True,
-                "data": all_results
-            })
+            return success_response(all_results)
         
         except Exception as e:
             logger.error(f"Error in StaticTableAPIView.get: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _calculate_statistics(self, turbine, start_time, end_time, source_type='wind_speed'):
         try:
@@ -143,11 +113,7 @@ class StaticTableAPIView(APIView):
                     computation = computation_query.order_by('-end_time').first()
                 
                 if not computation:
-                    return Response({
-                        "success": False,
-                        "error": f"No classification computation found for this turbine",
-                        "code": "NO_COMPUTATION"
-                    }, status=status.HTTP_404_NOT_FOUND)
+                    return error_response("No classification computation found for this turbine", "NO_COMPUTATION", status.HTTP_404_NOT_FOUND)
                 
                 classification_points_query = ClassificationPoint.objects.filter(
                     computation=computation
@@ -201,11 +167,7 @@ class StaticTableAPIView(APIView):
                         logger.error(f"Error loading wind_direction from file for turbine {turbine.id}: {str(file_error)}", exc_info=True)
             
             if df is None or df.empty:
-                return Response({
-                    "success": False,
-                    "error": f"No {source_type} data found for this turbine in specified time range",
-                    "code": "NO_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response(f"No {source_type} data found for this turbine in specified time range", "NO_DATA", status.HTTP_404_NOT_FOUND)
             
             result_data = calculate_statistics_from_dataframe(
                 df, 'value', source_type
@@ -213,11 +175,7 @@ class StaticTableAPIView(APIView):
             
             if not result_data:
                 logger.error(f"Error calculating statistics for turbine {turbine.id}, source_type={source_type}")
-                return Response({
-                    "success": False,
-                    "error": f"Error calculating statistics for {source_type}",
-                    "code": "CALCULATION_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response(f"Error calculating statistics for {source_type}", "CALCULATION_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             return {
                 "success": True,
@@ -226,8 +184,4 @@ class StaticTableAPIView(APIView):
         
         except Exception as e:
             logger.error(f"Error in StaticTableAPIView._calculate_statistics for turbine {turbine.id}, source_type={source_type}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

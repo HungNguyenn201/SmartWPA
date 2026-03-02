@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import logging
+import hashlib
 from pathlib import Path
 from django.db import transaction
 from django.utils import timezone
@@ -13,11 +14,13 @@ from analytics.models import (
     Computation, PowerCurveAnalysis, PowerCurveData,
     ClassificationSummary, ClassificationPoint,
     IndicatorData, YawErrorData, YawErrorStatistics,
-    DailyProduction, CapacityFactorData, WeibullData
+    DailyProduction, CapacityFactorData, WeibullData,
+    FailureEvent,
 )
 from ._header import (
     CSV_SEPARATOR,
     CSV_ENCODING,
+    to_epoch_ms,
     FIELD_MAPPING,
     REQUIRED_FILES,
     OPTIONAL_FILES,
@@ -25,8 +28,54 @@ from ._header import (
     DEFAULT_SWEPT_AREA,
     DEFAULT_DATA_DIR
 )
+from .unit_normalization import normalize_scada_dataframe_units
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
+
+
+_ALGO_ID_CACHE: Optional[Tuple[str, str]] = None
+
+
+def _compute_algorithm_code_hash() -> str:
+    """
+    Best-effort hash for traceability.
+
+    - Prefers env override (SMARTWPA_ALGO_CODE_HASH) if provided.
+    - Otherwise hashes relevant computation source files under analytics/computation.
+    """
+    override = os.getenv("SMARTWPA_ALGO_CODE_HASH")
+    if override:
+        return str(override).strip()[:40]
+
+    base = Path(__file__).resolve().parents[3]  # .../SmartWPA
+    comp_dir = base / "analytics" / "computation"
+    if not comp_dir.exists():
+        return ""
+
+    files = sorted([p for p in comp_dir.glob("*.py") if p.is_file()])
+    h = hashlib.sha1()
+    for p in files:
+        # Include path for stability across same contents in different files.
+        h.update(str(p.name).encode("utf-8"))
+        try:
+            h.update(p.read_bytes())
+        except Exception:
+            # If a file can't be read, still return a hash of what we could read.
+            continue
+    return h.hexdigest()[:40]
+
+
+def get_algorithm_identity() -> Tuple[str, str]:
+    """
+    Return (algorithm_version, code_hash) for persisted Computation rows.
+    """
+    global _ALGO_ID_CACHE
+    if _ALGO_ID_CACHE is not None:
+        return _ALGO_ID_CACHE
+    version = os.getenv("SMARTWPA_ALGO_VERSION", "v1").strip()[:32]
+    code_hash = _compute_algorithm_code_hash()
+    _ALGO_ID_CACHE = (version, code_hash)
+    return _ALGO_ID_CACHE
 
 
 def _detect_csv_separator(file_path: Path) -> str:
@@ -202,8 +251,8 @@ def get_turbine_constants(turbine: Turbines, constants_override: Optional[Dict] 
         constants["Swept_area"] = float(DEFAULT_SWEPT_AREA)
 
     if all(key in constants for key in REQUIRED_TURBINE_CONSTANTS):
-        return constants
-
+        return constants 
+        
     required_str = ', '.join(REQUIRED_TURBINE_CONSTANTS)
     raise ValueError(
         f"Turbine constants must be configured. Required: {required_str}. "
@@ -243,16 +292,15 @@ def prepare_dataframe_from_factory_historical(
             row['DIRECTION_WIND'] = hist.wind_dir
         
         if hist.air_temp is not None:
-            temp = hist.air_temp
-            if temp < 223:
-                temp = temp + 273.15
-            row['TEMPERATURE'] = temp
+            # Keep raw value; unit normalization happens centrally in load_turbine_data().
+            row['TEMPERATURE'] = hist.air_temp
         
         if hist.pressure is not None:
             row['PRESSURE'] = hist.pressure
         
         if hist.hud is not None:
-            row['HUMIDITY'] = hist.hud / 100.0 if hist.hud > 1 else hist.hud
+            # Keep raw value; unit normalization happens centrally in load_turbine_data().
+            row['HUMIDITY'] = hist.hud
         
         data_list.append(row)
     
@@ -343,10 +391,9 @@ def _load_all_data_from_files(
                 logger.warning(f"Error reading optional file {filename}: {str(e)}")
                 continue
     
-    if 'TEMPERATURE' in df_merged.columns:
-        df_merged['TEMPERATURE'] = df_merged['TEMPERATURE'].apply(
-            lambda x: x + 273.15 if pd.notna(x) and x < 223 else x
-        )
+    # IMPORTANT:
+    # Do NOT apply heuristic temperature conversion here.
+    # Raw units are normalized centrally in load_turbine_data() via ScadaUnitConfig.
     
     return df_merged.sort_values('TIMESTAMP').reset_index(drop=True)
 
@@ -462,12 +509,6 @@ def prepare_dataframe_from_files(
                 logger.warning(f"Error reading optional file {filename}: {str(e)}")
                 continue
     
-    # Xử lý TEMPERATURE: chuyển đổi nếu cần (giống logic DB)
-    if 'TEMPERATURE' in df_merged.columns:
-        df_merged['TEMPERATURE'] = df_merged['TEMPERATURE'].apply(
-            lambda x: x + 273.15 if pd.notna(x) and x < 223 else x
-        )
-    
     # Sắp xếp theo TIMESTAMP
     df_merged = df_merged.sort_values('TIMESTAMP').reset_index(drop=True)
     
@@ -500,7 +541,7 @@ def load_turbine_data(
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
     preferred_source: str = 'db'
-) -> Tuple[Optional[pd.DataFrame], str, Dict[str, str]]:
+) -> Tuple[Optional[pd.DataFrame], Optional[str], Dict[str, str], Optional[Dict]]:
     """
     Load turbine data từ database hoặc file với fallback logic.
     
@@ -511,10 +552,11 @@ def load_turbine_data(
         preferred_source: 'db' hoặc 'file' - nguồn ưu tiên
     
     Returns:
-        Tuple of (DataFrame, data_source_used, error_info)
+        Tuple of (DataFrame, data_source_used, error_info, units_meta)
         - DataFrame: DataFrame với dữ liệu hoặc None nếu không có
         - data_source_used: 'db' hoặc 'file' - nguồn đã sử dụng
         - error_info: Dict chứa thông tin lỗi từ các nguồn đã thử
+        - units_meta: canonical units + raw unit config used (or None if no data)
     """
     error_info = {}
     df = None
@@ -555,7 +597,20 @@ def load_turbine_data(
                     error_info['file'] = "No data found in files or files do not exist"
                     logger.warning(f"Fallback to file also failed for turbine {turbine.id}: {error_info['file']}")
     
-    return df, data_source_used, error_info
+    if df is not None and data_source_used and not df.empty:
+        try:
+            df_norm, units_meta = normalize_scada_dataframe_units(df, turbine=turbine, data_source=data_source_used)
+            return df_norm, data_source_used, error_info, units_meta
+        except Exception as e:
+            # Fail-safe: if unit normalization fails, still return raw df but record error info.
+            logger.error(
+                f"Unit normalization failed for turbine {turbine.id} (source={data_source_used}): {str(e)}",
+                exc_info=True,
+            )
+            error_info["unit_normalization"] = str(e)
+            return df, data_source_used, error_info, None
+
+    return df, data_source_used, error_info, None
 
 
 def _get_or_create_computation(
@@ -578,6 +633,12 @@ def _get_or_create_computation(
         'created_at': timezone.now(),
         'is_latest': True
     }
+
+    algo_version, code_hash = get_algorithm_identity()
+    if algo_version:
+        defaults["algorithm_version"] = algo_version
+    if code_hash:
+        defaults["code_hash"] = code_hash
     
     if constants:
         if 'V_cutin' in constants:
@@ -645,10 +706,10 @@ def save_computation_results(
     result_start_time = computation_result.get('start_time')
     result_end_time = computation_result.get('end_time')
     
-    if result_start_time and result_start_time < 1e12:
-        result_start_time = int(result_start_time * 1000)
-    if result_end_time and result_end_time < 1e12:
-        result_end_time = int(result_end_time * 1000)
+    if result_start_time is not None:
+        result_start_time = to_epoch_ms(result_start_time)
+    if result_end_time is not None:
+        result_end_time = to_epoch_ms(result_end_time)
     
     save_start_time = result_start_time if result_start_time else start_time
     save_end_time = result_end_time if result_end_time else end_time
@@ -759,6 +820,7 @@ def save_classification(computation: Computation, classification: Dict):
     
     if 'classification_points' in classification:
         ClassificationPoint.objects.filter(computation=computation).delete()
+        FailureEvent.objects.filter(computation=computation).delete()
         
         points_data = classification['classification_points']
         if isinstance(points_data, dict) and 'data' in points_data and 'index' in points_data:
@@ -793,29 +855,7 @@ def save_classification(computation: Computation, classification: Dict):
                                 if pd.isna(wind_speed_val) or pd.isna(active_power_val):
                                     continue
                                 
-                                if isinstance(idx, pd.Timestamp):
-                                    # Pandas Timestamp - convert to milliseconds
-                                    timestamp_ms = int(idx.timestamp() * 1000)
-                                elif isinstance(idx, (int, float)):
-                                    # Handle different timestamp units
-                                    if idx > 1e15:
-                                        # Nanoseconds (from pandas DatetimeIndex.astype(int))
-                                        timestamp_ms = int(idx / 1e6)
-                                    elif idx > 1e13:
-                                        # Microseconds
-                                        timestamp_ms = int(idx / 1e3)
-                                    elif idx > 1e12:
-                                        # Already milliseconds
-                                        timestamp_ms = int(idx)
-                                    elif idx > 1e9:
-                                        # Seconds (Unix timestamp)
-                                        timestamp_ms = int(idx * 1000)
-                                    else:
-                                        # Try to parse as datetime string or other format
-                                        timestamp_ms = int(pd.to_datetime(idx).timestamp() * 1000)
-                                else:
-                                    # Other types - try to convert to datetime
-                                    timestamp_ms = int(pd.to_datetime(idx).timestamp() * 1000)
+                                timestamp_ms = _to_timestamp_ms(idx)
                                 
                                 if timestamp_ms:
                                     points_to_create.append(
@@ -833,12 +873,233 @@ def save_classification(computation: Computation, classification: Dict):
                 if points_to_create:
                     ClassificationPoint.objects.bulk_create(points_to_create, batch_size=1000)
 
+            # Persist failure events for Timeline chart (derived from the same classification payload).
+            # This avoids recomputing from DB at API time.
+            try:
+                _save_failure_events_from_classification_obj(computation, classification)
+            except Exception as e:
+                # Do not fail the whole save pipeline if events persistence fails.
+                # But log clearly so user knows what went wrong
+                logger.error(
+                    "computation_id=%s: Failed to persist failure events. Error: %s",
+                    computation.id,
+                    str(e),
+                    exc_info=True
+                )
+
+
+def _to_timestamp_ms(idx) -> Optional[int]:
+    """Convert various timestamp representations (ns/us/ms/s/Timestamp) to integer milliseconds. Uses to_epoch_ms for numeric."""
+    try:
+        if isinstance(idx, pd.Timestamp):
+            return int(idx.timestamp() * 1000)
+        return to_epoch_ms(idx)
+    except Exception:
+        return None
+
+
+def _save_failure_events_from_classification_obj(computation: Computation, classification: Dict) -> None:
+    """
+    Persist FailureEvent rows for the given *classification* Computation.
+
+    Input: computation_result['classification'] produced by
+    analytics/computation/classifier.classification_to_obj().
+    """
+    from analytics.computation.reliability import compute_failure_events
+
+    logger.debug(
+        "computation_id=%s: _save_failure_events_from_classification_obj called. "
+        "Classification keys: %s",
+        computation.id,
+        list(classification.keys()) if isinstance(classification, dict) else "not a dict"
+    )
+
+    points_data = classification.get("classification_points")
+    if not isinstance(points_data, dict):
+        logger.debug(
+            "computation_id=%s: classification_points is not a dict, skipping failure events persistence",
+            computation.id
+        )
+        return
+
+    indices = points_data.get("index")
+    rows = points_data.get("data")
+    cols = points_data.get("columns") or []
+    classification_map = classification.get("classification_map") or {}
+
+    if not indices or not rows:
+        logger.debug(
+            "computation_id=%s: No indices or rows in classification_points, skipping failure events persistence",
+            computation.id
+        )
+        return
+
+    initial_point_count = len(indices) if indices else 0
+    logger.debug(
+        "computation_id=%s: Starting failure events rebuild. Initial points: %d",
+        computation.id,
+        initial_point_count
+    )
+
+    try:
+        # NOTE: For FailureEvent persistence we ONLY need timestamps + classification/status.
+        # We intentionally do NOT depend on WIND_SPEED/ACTIVE_POWER being non-NaN.
+        c_cl = cols.index("classification")
+    except ValueError as e:
+        logger.warning(
+            "computation_id=%s: Missing required column in classification_points: %s",
+            computation.id,
+            str(e),
+        )
+        return
+
+    ts_ms_list: list[int] = []
+    status_list: list[str] = []
+    skipped_invalid_ts = 0
+    skipped_invalid_row = 0
+    skipped_invalid_status = 0
+
+    for i, idx in enumerate(indices):
+        if i >= len(rows):
+            skipped_invalid_row += 1
+            continue
+        row = rows[i]
+        if not isinstance(row, (list, tuple)) or len(row) <= c_cl:
+            skipped_invalid_row += 1
+            continue
+
+        ts_ms = _to_timestamp_ms(idx)
+        if not ts_ms:
+            skipped_invalid_ts += 1
+            continue
+
+        try:
+            if pd.isna(row[c_cl]):
+                skipped_invalid_status += 1
+                continue
+            code_int = int(row[c_cl])
+        except Exception:
+            skipped_invalid_status += 1
+            continue
+
+        status = classification_map.get(code_int, "UNKNOWN")
+        ts_ms_list.append(int(ts_ms))
+        status_list.append(str(status))
+
+    if not ts_ms_list:
+        logger.warning(
+            "computation_id=%s: No valid points after filtering. Initial: %d, skipped_invalid_ts: %d, skipped_invalid_row: %d, skipped_invalid_status: %d",
+            computation.id,
+            initial_point_count,
+            skipped_invalid_ts,
+            skipped_invalid_row
+            ,
+            skipped_invalid_status,
+        )
+        return
+
+    logger.debug(
+        "computation_id=%s: Rebuild stats - Initial: %d, Valid: %d, Skipped invalid TS: %d, Skipped invalid row: %d, Skipped invalid status: %d",
+        computation.id,
+        initial_point_count,
+        len(ts_ms_list),
+        skipped_invalid_ts,
+        skipped_invalid_row,
+        skipped_invalid_status,
+    )
+
+    # Build minimal DataFrame expected by compute_failure_events
+    #
+    # IMPORTANT: do NOT construct DataFrame from a Series without matching index, otherwise pandas will
+    # align by index labels (RangeIndex vs DatetimeIndex) and fill the whole column with NaN.
+    idx_dt = pd.to_datetime(pd.Series(ts_ms_list, dtype="int64"), unit="ms", utc=True)
+    idx_dt = pd.DatetimeIndex(idx_dt)
+    status_s = pd.Series(status_list, index=idx_dt, dtype="string")
+    df = pd.DataFrame({"status": status_s}).sort_index()
+
+    # Log status distribution in rebuilt DataFrame
+    status_counts = df["status"].value_counts(dropna=False).to_dict()
+    logger.debug(
+        "computation_id=%s: Rebuilt DataFrame status distribution: %s",
+        computation.id,
+        status_counts
+    )
+
+    events, _dt_s = compute_failure_events(
+        df,
+        up_statuses=["NORMAL", "OVERPRODUCTION"],
+        down_statuses=["STOP"],
+        ignore_statuses=[
+            "PARTIAL_STOP",
+            "CURTAILMENT",
+            "PARTIAL_CURTAILMENT",
+            "UNDERPRODUCTION",
+            "MEASUREMENT_ERROR",
+            "UNKNOWN",
+        ],
+        min_down_duration_s=None,
+    )
+
+    if not events:
+        logger.debug(
+            "computation_id=%s: No failure events detected (no UP->STOP transitions found). "
+            "Status distribution: %s",
+            computation.id,
+            status_counts
+        )
+        return
+
+    logger.debug(
+        "computation_id=%s: Detected %d failure events. Total DOWN time: %.2f seconds, Resolution: %.1f seconds",
+        computation.id,
+        len(events),
+        sum(e.duration_s for e in events),
+        _dt_s
+    )
+
+    objs = [
+        FailureEvent(
+            computation=computation,
+            start_time=int(e.start.timestamp() * 1000),
+            end_time=int(e.end.timestamp() * 1000),
+            duration_s=float(e.duration_s),
+            status="STOP",
+        )
+        for e in events
+    ]
+    logger.debug(
+        "computation_id=%s: Built %d FailureEvent objects (first=%s)",
+        computation.id,
+        len(objs),
+        {"start_time": objs[0].start_time, "end_time": objs[0].end_time, "duration_s": objs[0].duration_s} if objs else None,
+    )
+    
+    try:
+        FailureEvent.objects.bulk_create(objs, batch_size=1000)
+        logger.debug(
+            "computation_id=%s: Successfully persisted %d failure events to database. "
+            "Validation: This should match failure_count in the corresponding indicators computation.",
+            computation.id,
+            len(objs)
+        )
+    except Exception as e:
+        logger.error(
+            "computation_id=%s: Failed to persist failure events to database: %s",
+            computation.id,
+            str(e),
+            exc_info=True
+        )
+        raise
+
 
 def save_indicators(computation: Computation, indicators: Dict):
     IndicatorData.objects.filter(computation=computation).delete()
     
     daily_production_list = indicators.pop('DailyProduction', [])
-    capacity_factor_dict = indicators.pop('CapacityFactor', {})
+    # CapacityFactor is now an overall scalar KPI (standard definition) stored in IndicatorData.
+    # Keep per-wind-bin metric under CapacityFactorByWindBin (optional, persisted for advanced charts).
+    capacity_factor_bins = indicators.pop('CapacityFactorByWindBin', {})
+    capacity_factor_overall = indicators.get("CapacityFactor", None)
     
     indicator_data = IndicatorData(
         computation=computation,
@@ -848,6 +1109,7 @@ def save_indicators(computation: Computation, indicators: Dict):
         loss_energy=float(indicators.get('LossEnergy', 0.0)),
         loss_percent=float(indicators.get('LossPercent', 0.0)),
         rated_power=float(indicators.get('RatedPower', 0.0)),
+        capacity_factor=float(capacity_factor_overall) if capacity_factor_overall is not None else None,
         tba=float(indicators.get('Tba', 0.0)),
         pba=float(indicators.get('Pba', 0.0)),
         stop_loss=float(indicators.get('StopLoss', 0.0)),
@@ -859,6 +1121,7 @@ def save_indicators(computation: Computation, indicators: Dict):
         total_partial_stop_points=int(indicators.get('TotalPartialStopPoints', 0)),
         total_under_production_points=int(indicators.get('TotalUnderProductionPoints', 0)),
         total_curtailment_points=int(indicators.get('TotalCurtailmentPoints', 0)),
+        failure_count=int(indicators.get("FailureCount") or 0),
         mtbf=float(indicators.get('Mtbf')) if indicators.get('Mtbf') is not None else None,
         mttr=float(indicators.get('Mttr')) if indicators.get('Mttr') is not None else None,
         mttf=float(indicators.get('Mttf')) if indicators.get('Mttf') is not None else None,
@@ -898,11 +1161,13 @@ def save_indicators(computation: Computation, indicators: Dict):
             if 'date' in dp and 'DailyProduction' in dp:
                 try:
                     date = pd.to_datetime(dp['date']).date()
+                    reachable_val = dp.get('DailyReachable')
                     daily_productions.append(
                         DailyProduction(
                             computation=computation,
                             date=date,
-                            daily_production=float(dp['DailyProduction'])
+                            daily_production=float(dp['DailyProduction']),
+                            daily_reachable=float(reachable_val) if reachable_val is not None else None,
                         )
                     )
                 except (ValueError, KeyError):
@@ -911,18 +1176,21 @@ def save_indicators(computation: Computation, indicators: Dict):
         if daily_productions:
             DailyProduction.objects.bulk_create(daily_productions, batch_size=1000)
     
-    if capacity_factor_dict:
-        CapacityFactorData.objects.filter(computation=computation).delete()
+    # Persist optional per-wind-bin metric for traceability/advanced use-cases.
+    CapacityFactorData.objects.filter(computation=computation).delete()
+    if capacity_factor_bins:
         capacity_factors = []
-        for wind_speed_bin, capacity_factor in capacity_factor_dict.items():
-            capacity_factors.append(
-                CapacityFactorData(
-                    computation=computation,
-                    wind_speed_bin=float(wind_speed_bin),
-                    capacity_factor=float(capacity_factor)
+        for wind_speed_bin, val in capacity_factor_bins.items():
+            try:
+                capacity_factors.append(
+                    CapacityFactorData(
+                        computation=computation,
+                        wind_speed_bin=float(wind_speed_bin),
+                        capacity_factor=float(val),
+                    )
                 )
-            )
-        
+            except (TypeError, ValueError):
+                continue
         if capacity_factors:
             CapacityFactorData.objects.bulk_create(capacity_factors, batch_size=1000)
 
@@ -1019,10 +1287,10 @@ def format_computation_output(computation_result: Dict) -> Dict:
     start_time = computation_result.get('start_time')
     end_time = computation_result.get('end_time')
     
-    if start_time and start_time < 1e12:
-        start_time = int(start_time * 1000)
-    if end_time and end_time < 1e12:
-        end_time = int(end_time * 1000)
+    if start_time is not None:
+        start_time = to_epoch_ms(start_time)
+    if end_time is not None:
+        end_time = to_epoch_ms(end_time)
     
     output = {
         'start_time': start_time,

@@ -9,6 +9,7 @@ from facilities.models import Turbines
 from analytics.models import Computation, ClassificationPoint
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 from api_gateway.turbines_analysis.helpers.distribution_helpers import (
     calculate_global_distribution,
     calculate_monthly_distribution,
@@ -30,20 +31,12 @@ class DistributionAPIView(APIView):
                 turbine_id = request.query_params.get('turbine_id')
             
             if not turbine_id:
-                return Response({
-                    "success": False,
-                    "error": "Turbine ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Turbine ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             permission_response = check_object_permission(
                 request, self, turbine,
@@ -55,11 +48,7 @@ class DistributionAPIView(APIView):
             source_type = request.query_params.get('source_type', 'wind_speed')
             valid_source_types = ['wind_speed', 'power']
             if source_type not in valid_source_types:
-                return Response({
-                    "success": False,
-                    "error": f"source_type must be one of: {', '.join(valid_source_types)}",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(f"source_type must be one of: {', '.join(valid_source_types)}", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             default_bin_width = {
                 'wind_speed': 1.0,
@@ -68,29 +57,17 @@ class DistributionAPIView(APIView):
             try:
                 bin_width = float(request.query_params.get('bin_width', default_bin_width[source_type]))
             except ValueError:
-                return Response({
-                    "success": False,
-                    "error": "bin_width must be a number",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("bin_width must be a number", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 bin_count = int(request.query_params.get('bin_count', 50))
             except ValueError:
-                return Response({
-                    "success": False,
-                    "error": "bin_count must be an integer",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("bin_count must be an integer", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             mode = request.query_params.get('mode', 'global')
             valid_modes = ['global', 'time']
             if mode not in valid_modes:
-                return Response({
-                    "success": False,
-                    "error": f"mode must be one of: {', '.join(valid_modes)}",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(f"mode must be one of: {', '.join(valid_modes)}", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             time_type = None
             if mode == 'time':
@@ -98,18 +75,9 @@ class DistributionAPIView(APIView):
                 valid_time_types = ['monthly', 'day_night', 'seasonally']
                 
                 if not time_type:
-                    return Response({
-                        "success": False,
-                        "error": "time_type must be specified when mode is 'time'",
-                        "code": "MISSING_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
+                    return error_response("time_type must be specified when mode is 'time'", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
                 if time_type not in valid_time_types:
-                    return Response({
-                        "success": False,
-                        "error": f"time_type must be one of: {', '.join(valid_time_types)}",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response(f"time_type must be one of: {', '.join(valid_time_types)}", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
@@ -118,30 +86,19 @@ class DistributionAPIView(APIView):
                 try:
                     start_time = int(start_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time must be an integer (Unix timestamp in milliseconds)",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("start_time must be an integer (Unix timestamp in milliseconds)", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             if end_time:
                 try:
                     end_time = int(end_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "end_time must be an integer (Unix timestamp in milliseconds)",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("end_time must be an integer (Unix timestamp in milliseconds)", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             cache_key = f"distribution_{turbine_id}_{source_type}_{start_time or 'all'}_{end_time or 'all'}_{bin_width}_{mode}_{time_type or 'none'}_{bin_count}"
             
             cached_result = cache.get(cache_key)
             if cached_result:
-                return Response({
-                    "success": True,
-                    "data": cached_result
-                })
+                return success_response(cached_result)
             
             result = self._calculate_distribution(
                 turbine,
@@ -158,22 +115,13 @@ class DistributionAPIView(APIView):
                 return result
             
             if not result:
-                return Response({
-                    "success": False,
-                    "error": f"Error calculating {source_type} distribution",
-                    "code": "PROCESSING_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response(f"Error calculating {source_type} distribution", "PROCESSING_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             cache.set(cache_key, result["data"], timeout=3600)
-            
-            return Response(result)
+            return success_response(result["data"])
         
         except Exception as e:
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _calculate_distribution(
         self, 
@@ -203,11 +151,7 @@ class DistributionAPIView(APIView):
             
             if not computation:
                 logger.warning(f"No classification computation found for turbine {turbine.id}")
-                return Response({
-                    "success": False,
-                    "error": "No classification computation found for this turbine",
-                    "code": "NO_COMPUTATION"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No classification computation found for this turbine", "NO_COMPUTATION", status.HTTP_404_NOT_FOUND)
             
             classification_points_query = ClassificationPoint.objects.filter(
                 computation=computation
@@ -228,11 +172,7 @@ class DistributionAPIView(APIView):
             
             if df is None or df.empty:
                 logger.warning(f"No {source_type} data found for turbine {turbine.id} in time range {start_time}-{end_time}")
-                return Response({
-                    "success": False,
-                    "error": f"No {source_type} data found for this turbine in specified time range",
-                    "code": "NO_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response(f"No {source_type} data found for this turbine in specified time range", "NO_DATA", status.HTTP_404_NOT_FOUND)
             
             result = None
             if mode == 'global':
@@ -247,11 +187,7 @@ class DistributionAPIView(APIView):
             
             if result is None:
                 logger.error(f"Error calculating distribution for turbine {turbine.id}, source_type={source_type}, mode={mode}, time_type={time_type}")
-                return Response({
-                    "success": False,
-                    "error": "Error calculating distribution",
-                    "code": "CALCULATION_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response("Error calculating distribution", "CALCULATION_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             result.update({
                 'turbine_id': turbine.id,
@@ -271,8 +207,4 @@ class DistributionAPIView(APIView):
             
         except Exception as e:
             logger.error(f"Error in DistributionAPIView._calculate_distribution for turbine {turbine.id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

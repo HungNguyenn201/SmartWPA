@@ -19,15 +19,26 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-hvam)@(fnw!*9a3w3*%owq8%t@(e45-s_qh18tw_b$qz!6&nzg'
+# Prefer environment variable in production.
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-hvam)@(fnw!*9a3w3*%owq8%t@(e45-s_qh18tw_b$qz!6&nzg",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "True").strip().lower() in ("1", "true", "yes", "y")
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '10.10.10.106']
+allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS", "")
+ALLOWED_HOSTS = (
+    [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]
+    if allowed_hosts_env
+    else ["localhost", "127.0.0.1", "10.10.11.172"]
+)
 
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ORIGIN_ALLOW_ALL = True
+# CORS: allow-all only in DEBUG by default
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ORIGIN_ALLOW_ALL = DEBUG
+CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
     "GET",

@@ -1,0 +1,211 @@
+{
+  "info": {
+    "name": "SmartWPA API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/login/", "host": ["{{base_url}}"], "path": ["api", "auth", "login", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/refresh/", "host": ["{{base_url}}"], "path": ["api", "auth", "refresh", ""] },
+            "body": { "mode": "raw", "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}" }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/logout/", "host": ["{{base_url}}"], "path": ["api", "auth", "logout", ""] },
+            "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "CRUD",
+      "item": [
+        {
+          "name": "List farms",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/api/farms/", "host": ["{{base_url}}"], "path": ["api", "farms", ""] }
+          }
+        },
+        {
+          "name": "Create farm",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/api/farms/create/", "host": ["{{base_url}}"], "path": ["api", "farms", "create", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Farm A\",\n  \"address\": \"VN\",\n  \"capacity\": 100,\n  \"latitude\": 10.0,\n  \"longitude\": 106.0\n}"
+            }
+          }
+        },
+        {
+          "name": "Create turbine",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/farms/{{farm_id}}/turbines/create/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "farms", "{{farm_id}}", "turbines", "create", ""]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"WT1\",\n  \"capacity\": 5.0,\n  \"latitude\": 10.0,\n  \"longitude\": 106.0\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Computation",
+      "item": [
+        {
+          "name": "Run computation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/turbines/{{turbine_id}}/computation/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "turbines", "{{turbine_id}}", "computation", ""]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"start_time\": {{start_time_ms}},\n  \"end_time\": {{end_time_ms}},\n  \"data_source\": \"db\",\n  \"constants\": { \"Swept_area\": 20000 }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        {
+          "name": "Power curve (line)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/turbines/{{turbine_id}}/power-curve/?mode=global",
+              "host": ["{{base_url}}"],
+              "path": ["api", "turbines", "{{turbine_id}}", "power-curve", ""],
+              "query": [{ "key": "mode", "value": "global" }]
+            }
+          }
+        },
+        {
+          "name": "Power curve (with scatter)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/turbines/{{turbine_id}}/power-curve/?mode=global&max_points=20000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "turbines", "{{turbine_id}}", "power-curve", ""],
+              "query": [
+                { "key": "mode", "value": "global" },
+                { "key": "max_points", "value": "20000" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cross data analysis (turbine)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/turbines/{{turbine_id}}/cross-data-analysis/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "turbines", "{{turbine_id}}", "cross-data-analysis", ""]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"x_source\": \"wind_speed\",\n  \"y_source\": \"power\",\n  \"group_by\": \"classification\",\n  \"max_points\": 20000,\n  \"regression\": { \"enabled\": true, \"type\": \"linear\", \"force_zero_intercept\": false },\n  \"datetime\": { \"start_time_ms\": {{start_time_ms}}, \"end_time_ms\": {{end_time_ms}} },\n  \"filters\": { \"months\": [], \"day_night\": \"\", \"classifications\": [] }\n}"
+            }
+          }
+        },
+        {
+          "name": "Cross data analysis (farm)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/farms/{{farm_id}}/cross-data-analysis/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "farms", "{{farm_id}}", "cross-data-analysis", ""]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"x_source\": \"wind_speed\",\n  \"y_source\": \"power\",\n  \"group_by\": \"turbine\",\n  \"max_points\": 20000,\n  \"regression\": { \"enabled\": false, \"type\": \"linear\" },\n  \"datetime\": { \"start_time_ms\": {{start_time_ms}}, \"end_time_ms\": {{end_time_ms}} },\n  \"filters\": { \"months\": [], \"day_night\": \"\" }\n}"
+            }
+          }
+        },
+        {
+          "name": "Failure indicators (farm)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/farms/{{farm_id}}/failure-indicators/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "farms", "{{farm_id}}", "failure-indicators", ""]
+            }
+          }
+        },
+        {
+          "name": "Failure timeline (farm)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/farms/{{farm_id}}/failure-timeline/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "farms", "{{farm_id}}", "failure-timeline", ""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+

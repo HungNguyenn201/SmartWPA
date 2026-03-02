@@ -13,6 +13,18 @@ class Computation(models.Model):
     computation_type = models.CharField(max_length=50, help_text="Type of computation (power_curve, classification, weibull, etc.)")
     created_at = models.DateTimeField(auto_now_add=True)
     is_latest = models.BooleanField(default=True, help_text="Whether this is the latest computation for this time range")
+    algorithm_version = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Algorithm version identifier for traceability (e.g. v1, 2026-02-26)",
+    )
+    code_hash = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        help_text="Hash of computation code/config used to generate this result",
+    )
     v_cutin = models.FloatField(null=True, blank=True, help_text="Cut-in wind speed (m/s) - estimated from SCADA")
     v_cutout = models.FloatField(null=True, blank=True, help_text="Cut-out wind speed (m/s) - estimated from SCADA")
     v_rated = models.FloatField(null=True, blank=True, help_text="Rated wind speed (m/s) - estimated from SCADA")
@@ -130,6 +142,11 @@ class IndicatorData(models.Model):
     loss_energy = models.FloatField()
     loss_percent = models.FloatField()
     rated_power = models.FloatField(validators=[MinValueValidator(0.0)])
+    capacity_factor = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Capacity factor (overall) = RealEnergy / (RatedPower * TotalHours)",
+    )
     tba = models.FloatField()  # Technical availability
     pba = models.FloatField()  # Performance availability
     
@@ -147,6 +164,8 @@ class IndicatorData(models.Model):
     total_curtailment_points = models.IntegerField()
     
     # Time indicators
+    # Failure/reliability KPIs (computed during computation, persisted for UI)
+    failure_count = models.IntegerField(default=0, help_text="Number of failures (UP→STOP transitions, merged) for this computation range")
     mtbf = models.FloatField(null=True, blank=True, help_text="Mean Time Between Failures")  # Mean Time Between Failures
     mttr = models.FloatField(null=True, blank=True, help_text="Mean Time To Repair")  # Mean Time To Repair
     mttf = models.FloatField(null=True, blank=True, help_text="Mean Time To Failure")  # Mean Time To Failure
@@ -248,7 +267,11 @@ class DailyProduction(models.Model):
     """Model to store daily production records for a computation"""
     computation = models.ForeignKey(Computation, on_delete=models.CASCADE, related_name='daily_productions')
     date = models.DateField(help_text="Production date (YYYY-MM-DD)")
-    daily_production = models.FloatField(help_text="Daily production value")
+    daily_production = models.FloatField(help_text="Daily real production value (kWh)")
+    daily_reachable = models.FloatField(
+        null=True, blank=True,
+        help_text="Daily reachable (theoretical) production value (kWh). NULL for legacy data.",
+    )
     
     class Meta:
         indexes = [
@@ -277,4 +300,31 @@ class CapacityFactorData(models.Model):
         
     def __str__(self):
         return f"Capacity factor at {self.wind_speed_bin} m/s: {self.capacity_factor:.4f}"
+
+
+class FailureEvent(models.Model):
+    """
+    Persisted failure event intervals for the 'Turbine Failure Chart (Timeline)'.
+
+    Notes:
+    - Events are derived from classification output for the SAME computation time range.
+    - We store them per-turbine by linking to the turbine's classification Computation record.
+    - Definition (strict): Failure event = transition UP → STOP; consecutive STOP samples are merged.
+    """
+
+    computation = models.ForeignKey(Computation, on_delete=models.CASCADE, related_name="failure_events")
+    start_time = models.BigIntegerField(help_text="Failure start timestamp (ms)")
+    end_time = models.BigIntegerField(help_text="Failure end timestamp (ms)")
+    duration_s = models.FloatField(help_text="Failure duration (seconds)")
+    status = models.CharField(max_length=32, default="STOP", help_text="Down status label for this event (default STOP)")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["computation", "start_time"]),
+            models.Index(fields=["computation", "end_time"]),
+        ]
+        ordering = ["start_time"]
+
+    def __str__(self) -> str:
+        return f"FailureEvent({self.computation_id}): {self.start_time}->{self.end_time} ({self.duration_s}s)"
 

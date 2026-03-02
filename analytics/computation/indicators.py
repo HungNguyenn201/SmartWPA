@@ -20,16 +20,28 @@ def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     else:
         obj['LossPercent'] = 0.0
     
-    tmp = (estimated_data.groupby(pd.Grouper(freq='D'))['ACTIVE_POWER'].sum() * (resolution / pd.Timedelta(hours=1))) \
-                        .rename_axis('date') \
-                        .to_frame('DailyProduction') \
-                        .reset_index()
-                            
+    hours_factor = resolution / pd.Timedelta(hours=1)
+    daily_grp = estimated_data.groupby(pd.Grouper(freq='D'))
+    daily_real = (daily_grp['ACTIVE_POWER'].sum() * hours_factor).rename('DailyProduction')
+    daily_reach = (daily_grp['ESTIMATED_POWER'].sum() * hours_factor).rename('DailyReachable')
+    tmp = pd.concat([daily_real, daily_reach], axis=1).rename_axis('date').reset_index()
     tmp['date'] = tmp['date'].dt.strftime('%Y-%m-%d')
     obj['DailyProduction'] = tmp.to_dict(orient='records')
     
     
     obj['RatedPower'] = constants['P_rated']
+    # Capacity factor (overall, standard definition):
+    #   CF = RealEnergy / (P_rated * TotalHours)
+    # Where RealEnergy is in kWh (if ACTIVE_POWER is kW) and TotalHours is hours in range.
+    total_hours = None
+    try:
+        total_hours = (classified.index.max() - classified.index.min()).total_seconds() / 3600.0
+    except Exception:
+        total_hours = None
+    if total_hours and total_hours > 0 and obj['RatedPower'] > 0:
+        obj['CapacityFactor'] = obj['RealEnergy'] / (obj['RatedPower'] * total_hours)
+    else:
+        obj['CapacityFactor'] = None
     R = len(estimated_data[(estimated_data['status'] == 'NORMAL') 
                                 | (estimated_data['status'] == 'CURTAILMENT') 
                                 | (estimated_data['status'] == 'PARTIAL_CURTAILMENT') 

@@ -175,44 +175,107 @@ HISTORICAL_SOURCE_FIELD_MAP = {
 DEFAULT_TIME_STEP_SECONDS = 600.0
 
 # ============================================================================
-# Timestamp Conversion Utility
+# Cross Data Analysis Configuration
 # ============================================================================
+
+# Min/max points returned (downsample if larger)
+CROSS_ANALYSIS_MAX_POINTS_MIN = 1000
+CROSS_ANALYSIS_MAX_POINTS_MAX = 200_000
+CROSS_ANALYSIS_MAX_POINTS_DEFAULT = 20_000
+
+# Cache TTL in seconds
+CROSS_ANALYSIS_CACHE_TIMEOUT_SECONDS = 600
+
+# Direction sector filter bounds
+CROSS_ANALYSIS_SECTORS_NUMBER_MIN = 1
+CROSS_ANALYSIS_SECTORS_NUMBER_MAX = 72
+CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT = 12
+
+# Day/night split: night = hour >= NIGHT_START or hour < NIGHT_END
+CROSS_ANALYSIS_DAY_NIGHT_NIGHT_START_HOUR = 18
+CROSS_ANALYSIS_DAY_NIGHT_NIGHT_END_HOUR = 6
+
+# Classification status codes (index = code, value = label)
+CROSS_ANALYSIS_STATUS_BY_CODE = (
+    "NORMAL",
+    "MEASUREMENT_ERROR",
+    "STOP",
+    "PARTIAL_STOP",
+    "CURTAILMENT",
+    "PARTIAL_CURTAILMENT",
+    "OVERPRODUCTION",
+    "UNDERPRODUCTION",
+)
+
+# Valid group_by values
+CROSS_ANALYSIS_GROUP_BY_TURBINE = "turbine"
+CROSS_ANALYSIS_GROUP_BY_VALUES = frozenset({
+    "none", "classification", "monthly", "seasonally", "yearly", "turbine",
+    "time_profile_monthly", "time_profile_seasonally",
+    "source",
+})
+
+# Default bins for group_by=source (Z-axis color gradient)
+CROSS_ANALYSIS_SOURCE_GROUP_BINS_DEFAULT = 5
+CROSS_ANALYSIS_SOURCE_GROUP_BINS_MIN = 2
+CROSS_ANALYSIS_SOURCE_GROUP_BINS_MAX = 20
+
+# ============================================================================
+# Monthly Dashboard Configuration
+# ============================================================================
+
+# Cache TTL in seconds
+MONTHLY_DASHBOARD_CACHE_TIMEOUT_SECONDS = 600
+
+# Default and bounds for 'variation' (performance variation factor)
+MONTHLY_DASHBOARD_VARIATION_DEFAULT = 50
+MONTHLY_DASHBOARD_VARIATION_MIN = 1
+MONTHLY_DASHBOARD_VARIATION_MAX = 100
+
+# ============================================================================
+# Timestamp Conversion Utility (single source of truth — API luôn dùng ms)
+# ============================================================================
+
+def to_epoch_ms(value):
+    """
+    Chuẩn hoá giá trị timestamp về epoch milliseconds (int).
+    Hàm dùng chung cho toàn bộ API/helper; quy ước API luôn trả/nhận ms.
+
+    Args:
+        value: Timestamp (int/float) — có thể là seconds, ms, microseconds, hoặc nanoseconds.
+
+    Returns:
+        int: Epoch milliseconds. Trả None nếu value là None hoặc NaN.
+    """
+    if value is None:
+        return None
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return None
+    if val != val:  # NaN
+        return None
+    if val > 1e15:
+        return int(val / 1e6)   # nanoseconds -> ms
+    if val > 1e13:
+        return int(val / 1e3)   # microseconds -> ms
+    if val > 1e12:
+        return int(val)         # already ms
+    if val < 1e9:
+        return int(val * 1000)  # seconds -> ms
+    return int(val)             # already ms
+
 
 def convert_timestamp_to_datetime(timestamp_val):
     """
     Convert timestamp to pandas datetime, handling different units automatically.
-    
-    Args:
-        timestamp_val: Timestamp value (could be nanoseconds, microseconds, milliseconds, or seconds)
-    
-    Returns:
-        pandas.Timestamp or None if conversion fails
+    Sử dụng to_epoch_ms() làm nguồn chuẩn.
     """
     import pandas as pd
-    
-    if timestamp_val is None:
+    ms = to_epoch_ms(timestamp_val)
+    if ms is None:
         return None
-    
-    # Convert to milliseconds if needed
-    # Timestamps > 1e15 are likely nanoseconds, > 1e12 are microseconds, <= 1e13 are milliseconds
-    if timestamp_val > 1e15:
-        # Nanoseconds - convert to milliseconds
-        timestamp_ms = timestamp_val / 1e6
-    elif timestamp_val > 1e12:
-        # Could be microseconds or already milliseconds - check by magnitude
-        # If > 1e13 it's likely microseconds
-        if timestamp_val > 1e13:
-            timestamp_ms = timestamp_val / 1e3  # microseconds to milliseconds
-        else:
-            timestamp_ms = timestamp_val  # already milliseconds
-    else:
-        # Already in milliseconds or seconds
-        if timestamp_val < 1e9:
-            timestamp_ms = timestamp_val * 1000  # seconds to milliseconds
-        else:
-            timestamp_ms = timestamp_val  # already milliseconds
-    
     try:
-        return pd.to_datetime(int(timestamp_ms), unit='ms')
+        return pd.to_datetime(int(ms), unit='ms')
     except (ValueError, OverflowError, OSError):
         return None

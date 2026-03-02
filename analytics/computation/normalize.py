@@ -28,7 +28,7 @@ def check_column_names(columns: list[str]):
             raise ValueError(f"Column {column} not allowed.")
     for required in required_column_names:
         if required not in columns:
-            raise ValueError(f"Required column {column} not found.")
+            raise ValueError(f"Required column {required} not found.")
 
 def list_len(lists: list[list[any]]):
     first = len(lists[0])
@@ -58,18 +58,20 @@ def normalize_humidity(data: pd.DataFrame) -> pd.DataFrame:
 def remove_humidity_outliers(data: pd.DataFrame) -> pd.DataFrame:
     mask = (data['HUMIDITY'] < 0) | (data['HUMIDITY'] > 1)
     if mask.any():
-        data[mask]['HUMIDITY'] = np.nan
+        # Avoid chained indexing (SettingWithCopy) — must update the original df
+        data.loc[mask, 'HUMIDITY'] = np.nan
         imputer = KNNImputer(n_neighbors=15)
-        data['HUMIDITY'] = imputer.fit_transform(data['HUMIDITY'])
+        data['HUMIDITY'] = imputer.fit_transform(data[['HUMIDITY']]).ravel()
 
     return data
 
 def remove_pressure_outliers(data: pd.DataFrame) -> pd.DataFrame:
     mask = (data['PRESSURE'] < 50000) | (data['PRESSURE'] > 108500)
     if mask.any():
-        data[mask]['PRESSURE'] = np.nan
+        # Avoid chained indexing (SettingWithCopy) — must update the original df
+        data.loc[mask, 'PRESSURE'] = np.nan
         imputer = KNNImputer(n_neighbors=15)
-        data['PRESSURE'] = imputer.fit_transform(data['PRESSURE'])
+        data['PRESSURE'] = imputer.fit_transform(data[['PRESSURE']]).ravel()
 
     return data
 
@@ -116,20 +118,28 @@ def preprocess(data: pd.DataFrame) -> pd.DataFrame:
     return data
 
 def verify_min_hours(normals: pd.DataFrame):
+    if normals is None or normals.empty:
+        raise ValueError("No normal data points available to calculate KPIs.")
     if normals.index.max() - normals.index.min() < pd.Timedelta(hours=180):
         raise ValueError("Fewer than 180 hours of normal data points is not enough to calculate KPIs.")
     
-def verify_bin_data_amount(normals: pd.Dataframe, constants: dict):
+def verify_bin_data_amount(normals: pd.DataFrame, constants: dict):
+    if normals is None or normals.empty:
+        raise ValueError("No normal data points available to calculate KPIs.")
     insides = normals[(normals['WIND_SPEED'] >= constants['V_cutin']) & (normals['WIND_SPEED'] <= constants['V_cutout'])]['WIND_SPEED']
+    if insides.empty:
+        raise ValueError("Normal data points do not cover the [V_cutin, V_cutout] range.")
     if pd.cut(insides, round((constants['V_cutout'] - constants['V_cutin']) / 0.5)).value_counts(ascending=True).iloc[0] < 3:
         raise ValueError("At least 3 normal data points per bin is required to calculate KPIs.")
     
-def verify_wind_coverage(normals: pd.Dataframe, constants: dict, cutoff_margin: float = 1.0, tolerance: float = 0.15):
+def verify_wind_coverage(normals: pd.DataFrame, constants: dict, cutoff_margin: float = 1.0, tolerance: float = 0.15):
     """
     cutoff_margin should match the margin used in classifier.filter_error (CUT_MARGIN).
     tolerance lets coverage pass when data is very close to the required threshold,
     avoiding conflicts between filtering and coverage check.
     """
+    if normals is None or normals.empty:
+        raise ValueError("No normal data points available to calculate KPIs.")
     if normals['ACTIVE_POWER'].max() < constants['P_rated'] * 0.85:
         raise ValueError("Normal data points have to cover at least to 85% of rated power.")
 

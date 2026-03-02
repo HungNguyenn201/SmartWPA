@@ -12,6 +12,7 @@ from analytics.models import Computation, ClassificationPoint
 from acquisition.models import FactoryHistorical
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 from api_gateway.turbines_analysis.helpers.speed_analysis_helpers import (
     calculate_global_distribution,
     calculate_monthly_distribution,
@@ -37,20 +38,12 @@ class WindSpeedAnalysisAPIView(APIView):
                 turbine_id = request.query_params.get('turbine_id')
             
             if not turbine_id:
-                return Response({
-                    "success": False,
-                    "error": "Turbine ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Turbine ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             permission_response = check_object_permission(
                 request, self, turbine,
@@ -65,36 +58,20 @@ class WindSpeedAnalysisAPIView(APIView):
                 threshold2 = float(request.query_params.get('threshold2', 8.0))
                 sectors_number = int(request.query_params.get('sectors_number', 16))
             except ValueError:
-                return Response({
-                    "success": False,
-                    "error": "Invalid parameter values",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Invalid parameter values", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             if sectors_number not in [4, 8, 12, 16, 24, 36]:
-                return Response({
-                    "success": False,
-                    "error": "sectors_number must be one of: 4, 8, 12, 16, 24, 36",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("sectors_number must be one of: 4, 8, 12, 16, 24, 36", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             mode = request.query_params.get('mode', 'global')
             if mode not in ['global', 'time']:
-                return Response({
-                    "success": False,
-                    "error": "mode must be one of: global, time",
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("mode must be one of: global, time", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             time_type = None
             if mode == 'time':
                 time_type = request.query_params.get('time_type')
                 if not time_type or time_type not in ['monthly', 'day_night', 'seasonally']:
-                    return Response({
-                        "success": False,
-                        "error": "time_type must be one of: monthly, day_night, seasonally",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("time_type must be one of: monthly, day_night, seasonally", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
@@ -103,21 +80,13 @@ class WindSpeedAnalysisAPIView(APIView):
                 try:
                     start_time = int(start_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time must be an integer",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("start_time must be an integer", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             if end_time:
                 try:
                     end_time = int(end_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "end_time must be an integer",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("end_time must be an integer", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             result = self._calculate_wind_distribution(
                 turbine, start_time, end_time, bin_width,
@@ -128,21 +97,13 @@ class WindSpeedAnalysisAPIView(APIView):
                 return result
             
             if not result:
-                return Response({
-                    "success": False,
-                    "error": "Error calculating wind distribution",
-                    "code": "PROCESSING_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response("Error calculating wind distribution", "PROCESSING_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            return Response(result)
+            return success_response(result["data"])
         
         except Exception as e:
             logger.error(f"Error in WindSpeedAnalysisAPIView.get: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _load_direction_from_file(self, turbine, start_time, end_time):
         try:
@@ -207,11 +168,7 @@ class WindSpeedAnalysisAPIView(APIView):
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
-                return Response({
-                    "success": False,
-                    "error": "No classification computation found for this turbine",
-                    "code": "NO_COMPUTATION"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No classification computation found for this turbine", "NO_COMPUTATION", status.HTTP_404_NOT_FOUND)
             
             if not start_time:
                 start_time = computation.start_time
@@ -219,11 +176,7 @@ class WindSpeedAnalysisAPIView(APIView):
                 end_time = computation.end_time
             
             if not start_time or not end_time:
-                return Response({
-                    "success": False,
-                    "error": "Invalid time range: start_time and end_time must be provided",
-                    "code": "INVALID_TIME_RANGE"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Invalid time range: start_time and end_time must be provided", "INVALID_TIME_RANGE", status.HTTP_400_BAD_REQUEST)
             
             computation_matches_range = (
                 computation.start_time == start_time and 
@@ -242,11 +195,7 @@ class WindSpeedAnalysisAPIView(APIView):
                 ).only('timestamp', 'wind_speed').order_by('timestamp')
             
             if not classification_points_query.exists():
-                return Response({
-                    "success": False,
-                    "error": "No classification points found for this turbine in specified time range",
-                    "code": "NO_CLASSIFICATION_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No classification points found for this turbine in specified time range", "NO_CLASSIFICATION_DATA", status.HTTP_404_NOT_FOUND)
             
             historical_data_list = None
             try:
@@ -279,11 +228,7 @@ class WindSpeedAnalysisAPIView(APIView):
             )
             
             if df is None or df.empty:
-                return Response({
-                    "success": False,
-                    "error": "No valid wind speed data found for this turbine in specified time range after processing",
-                    "code": "NO_VALID_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No valid wind speed data found for this turbine in specified time range after processing", "NO_VALID_DATA", status.HTTP_404_NOT_FOUND)
             
             distribution_result = None
             if mode == 'global':
@@ -306,11 +251,7 @@ class WindSpeedAnalysisAPIView(APIView):
             
             if distribution_result is None:
                 logger.error(f"Error calculating wind distribution for turbine {turbine.id}, mode={mode}, time_type={time_type}")
-                return Response({
-                    "success": False,
-                    "error": "Error calculating distribution",
-                    "code": "CALCULATION_ERROR"
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return error_response("Error calculating distribution", "CALCULATION_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             distribution_result.update({
                 "turbine_id": turbine.id,
@@ -330,8 +271,4 @@ class WindSpeedAnalysisAPIView(APIView):
         
         except Exception as e:
             logger.error(f"Error in WindSpeedAnalysisAPIView._calculate_wind_distribution for turbine {turbine.id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

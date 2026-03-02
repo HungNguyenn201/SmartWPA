@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SmartHIS, PointType, HISPoint
+from .models import HISPoint, PointType, ScadaUnitConfig, SmartHIS
 
 
 @admin.register(SmartHIS)
@@ -25,3 +25,65 @@ class HISPointAdmin(admin.ModelAdmin):
     search_fields = ('point_name', 'farm__name', 'turbine__name', 'point_type__name')
     readonly_fields = ('created_at', 'updated_at')
     raw_id_fields = ('farm', 'point_type', 'turbine')
+
+
+@admin.register(ScadaUnitConfig)
+class ScadaUnitConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "data_source",
+        "farm",
+        "turbine",
+        "active_power_unit",
+        "wind_speed_unit",
+        "temperature_unit",
+        "pressure_unit",
+        "humidity_unit",
+        "updated_at",
+    )
+    list_filter = (
+        "data_source",
+        "farm",
+        "turbine",
+        "active_power_unit",
+        "wind_speed_unit",
+        "temperature_unit",
+        "pressure_unit",
+        "humidity_unit",
+        "updated_at",
+    )
+    search_fields = ("id", "farm__name", "turbine__name")
+    readonly_fields = ("created_at", "updated_at")
+    raw_id_fields = ("farm", "turbine")
+    ordering = ("-updated_at", "-created_at")
+    fieldsets = (
+        (
+            "Scope",
+            {"fields": ("data_source", "farm", "turbine")},
+        ),
+        (
+            "Raw units",
+            {
+                "fields": (
+                    "active_power_unit",
+                    "wind_speed_unit",
+                    "temperature_unit",
+                    "pressure_unit",
+                    "humidity_unit",
+                )
+            },
+        ),
+        (
+            "OEM scaling (optional multipliers)",
+            {
+                "fields": (
+                    "active_power_multiplier",
+                    "wind_speed_multiplier",
+                    "temperature_multiplier",
+                    "pressure_multiplier",
+                    "humidity_multiplier",
+                )
+            },
+        ),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+    )

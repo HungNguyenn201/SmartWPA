@@ -126,3 +126,94 @@ class FactoryHistorical(models.Model):
         if self.turbine:
             return f'{self.farm.name} - {self.turbine.name} - {self.time_stamp}'
         return f'{self.farm.name} - {self.time_stamp}'
+
+
+class ScadaUnitConfig(models.Model):
+    """
+    Unit configuration used to normalize raw SCADA values into canonical units
+    BEFORE feeding the analytics computation pipeline.
+
+    Design:
+    - Canonical units in compute:
+      - WIND_SPEED: m/s
+      - ACTIVE_POWER: kW
+      - TEMPERATURE: K
+      - PRESSURE: Pa
+      - HUMIDITY: ratio (0..1)
+    - This model lets you specify raw units per farm/turbine and per data_source (db/file).
+    - Lookup priority (highest → lowest):
+      1) turbine + data_source
+      2) turbine + any
+      3) farm + data_source
+      4) farm + any
+      5) global any (farm=null, turbine=null)
+    """
+
+    DATA_SOURCE_CHOICES = (
+        ("db", "Database"),
+        ("file", "CSV Files"),
+        ("any", "Any"),
+    )
+
+    POWER_UNIT_CHOICES = (
+        ("kW", "kW"),
+        ("MW", "MW"),
+        ("W", "W"),
+    )
+    WIND_SPEED_UNIT_CHOICES = (
+        ("m/s", "m/s"),
+        ("km/h", "km/h"),
+    )
+    TEMPERATURE_UNIT_CHOICES = (
+        ("K", "Kelvin (K)"),
+        ("C", "Celsius (°C)"),
+    )
+    PRESSURE_UNIT_CHOICES = (
+        ("Pa", "Pa"),
+        ("hPa", "hPa"),
+        ("kPa", "kPa"),
+        ("mbar", "mbar"),
+        ("bar", "bar"),
+        ("percent", "Percent (not physical pressure)"),
+        ("unknown", "Unknown"),
+    )
+    HUMIDITY_UNIT_CHOICES = (
+        ("ratio", "Ratio (0..1)"),
+        ("percent", "Percent (0..100)"),
+    )
+
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, null=True, blank=True, related_name="scada_unit_configs")
+    turbine = models.ForeignKey(Turbines, on_delete=models.CASCADE, null=True, blank=True, related_name="scada_unit_configs")
+    data_source = models.CharField(max_length=8, choices=DATA_SOURCE_CHOICES, default="any")
+
+    active_power_unit = models.CharField(max_length=4, choices=POWER_UNIT_CHOICES, default="kW")
+    wind_speed_unit = models.CharField(max_length=4, choices=WIND_SPEED_UNIT_CHOICES, default="m/s")
+    temperature_unit = models.CharField(max_length=1, choices=TEMPERATURE_UNIT_CHOICES, default="K")
+    pressure_unit = models.CharField(max_length=10, choices=PRESSURE_UNIT_CHOICES, default="Pa")
+    humidity_unit = models.CharField(max_length=7, choices=HUMIDITY_UNIT_CHOICES, default="ratio")
+
+    # Optional extra multipliers for OEM-specific scaling (applied after unit conversion).
+    active_power_multiplier = models.FloatField(default=1.0)
+    wind_speed_multiplier = models.FloatField(default=1.0)
+    temperature_multiplier = models.FloatField(default=1.0)
+    pressure_multiplier = models.FloatField(default=1.0)
+    humidity_multiplier = models.FloatField(default=1.0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["farm", "turbine", "data_source"]),
+            models.Index(fields=["turbine", "data_source"]),
+            models.Index(fields=["farm", "data_source"]),
+        ]
+        ordering = ("-updated_at", "-created_at")
+
+    def __str__(self) -> str:
+        scope = "global"
+        if self.farm_id and not self.turbine_id:
+            scope = f"farm={self.farm_id}"
+        elif self.turbine_id:
+            scope = f"turbine={self.turbine_id}"
+        return f"ScadaUnitConfig({scope}, source={self.data_source})"

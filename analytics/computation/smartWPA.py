@@ -36,7 +36,9 @@ def process(data: pd.DataFrame, constants: dict) -> dict:
     obj['indicators'] = {}
     obj['indicators'].update(rayleighs_aep(power_curves['global'], constants, weibulls))
     obj['indicators'].update(indicators(classified, constants))
-    obj['indicators']['CapacityFactor'] = capacity_factor(binned_normalized, constants)
+    # Keep the existing by-wind-bin metric for traceability/advanced charts,
+    # but avoid naming it "CapacityFactor" (which is an overall KPI in indicators()).
+    obj['indicators']['CapacityFactorByWindBin'] = capacity_factor(binned_normalized, constants)
 
     tasks = [
         ('start_time', start_time, (data,)),

@@ -13,6 +13,7 @@ from api_gateway.turbines_analysis.helpers.indicators_helpers import (
     serialize_indicator_data,
     aggregate_turbine_indicators
 )
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -27,20 +28,12 @@ class TurbineIndicatorAPIView(APIView):
                 turbine_id = request.query_params.get('turbine_id')
             
             if not turbine_id:
-                return Response({
-                    "success": False,
-                    "error": "Turbine ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Turbine ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             # Kiểm tra quyền truy cập
             permission_response = check_object_permission(
@@ -64,11 +57,7 @@ class TurbineIndicatorAPIView(APIView):
                     start_time = int(start_time)
                     end_time = int(end_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time and end_time must be integers",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("start_time and end_time must be integers", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
                 
                 computation = computation_query.filter(
                     start_time=start_time,
@@ -79,30 +68,24 @@ class TurbineIndicatorAPIView(APIView):
             
             if not computation:
                 logger.warning(f"No indicators computation found for turbine {turbine_id}")
-                return Response({
-                    "success": False,
-                    "error": "No indicators computed yet for this turbine",
-                    "code": "NO_INDICATORS"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No indicators computed yet for this turbine", "NO_INDICATORS", status.HTTP_404_NOT_FOUND)
             
             indicator_data = computation.indicator_data.first()
             if not indicator_data:
                 logger.warning(f"Indicator data not found for computation {computation.id} of turbine {turbine_id}")
-                return Response({
-                    "success": False,
-                    "error": "Indicator data not found for this computation",
-                    "code": "NO_INDICATOR_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Indicator data not found for this computation", "NO_INDICATOR_DATA", status.HTTP_404_NOT_FOUND)
             
             daily_production_result = DailyProduction.objects.filter(
                 computation=computation
             ).aggregate(total=Sum('daily_production'))
             daily_production_total = daily_production_result.get('total')
             
-            capacity_factor_result = CapacityFactorData.objects.filter(
-                computation=computation
-            ).aggregate(avg=Avg('capacity_factor'))
-            capacity_factor_avg = capacity_factor_result.get('avg')
+            capacity_factor_avg = None
+            if getattr(indicator_data, "capacity_factor", None) is None:
+                capacity_factor_result = CapacityFactorData.objects.filter(
+                    computation=computation
+                ).aggregate(avg=Avg('capacity_factor'))
+                capacity_factor_avg = capacity_factor_result.get('avg')
             
             indicator_dict = serialize_indicator_data(
                 indicator_data, 
@@ -119,17 +102,10 @@ class TurbineIndicatorAPIView(APIView):
                 "data": indicator_dict
             }
             
-            return Response({
-                "success": True,
-                "data": result
-            })
+            return success_response(result)
         
         except Exception as e:
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class FarmIndicatorAPIView(APIView):
@@ -142,20 +118,12 @@ class FarmIndicatorAPIView(APIView):
                 farm_id = request.query_params.get('farm_id')
             
             if not farm_id:
-                return Response({
-                    "success": False,
-                    "error": "Farm ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Farm ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 farm = Farm.objects.select_related('investor').get(id=farm_id)
             except Farm.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Farm not found",
-                    "code": "FARM_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Farm not found", "FARM_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             # Kiểm tra quyền truy cập
             permission_response = check_object_permission(
@@ -167,11 +135,7 @@ class FarmIndicatorAPIView(APIView):
             
             turbines = Turbines.objects.filter(farm=farm).select_related('farm', 'farm__investor')
             if not turbines.exists():
-                return Response({
-                    "success": False,
-                    "error": "Farm has no turbines",
-                    "code": "NO_TURBINES"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Farm has no turbines", "NO_TURBINES", status.HTTP_404_NOT_FOUND)
             
             turbine_indicators = []
             latest_start_time = None
@@ -202,11 +166,11 @@ class FarmIndicatorAPIView(APIView):
                         daily_productions = computation.daily_productions.all()
                         daily_production_total = sum(dp.daily_production for dp in daily_productions) if daily_productions else None
                         
-                        capacity_factors = computation.capacity_factors.all()
-                        if capacity_factors:
-                            capacity_factor_avg = sum(cf.capacity_factor for cf in capacity_factors) / len(capacity_factors)
-                        else:
-                            capacity_factor_avg = None
+                        capacity_factor_avg = None
+                        if getattr(indicator_data, "capacity_factor", None) is None:
+                            capacity_factors = computation.capacity_factors.all()
+                            if capacity_factors:
+                                capacity_factor_avg = sum(cf.capacity_factor for cf in capacity_factors) / len(capacity_factors)
                         
                         indicator_dict = serialize_indicator_data(
                             indicator_data,
@@ -228,11 +192,7 @@ class FarmIndicatorAPIView(APIView):
             
             if not turbine_indicators:
                 logger.warning(f"No indicator data found for any turbine in farm {farm_id}")
-                return Response({
-                    "success": False,
-                    "error": "No indicator data found for any turbine in this farm",
-                    "code": "NO_INDICATORS"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No indicator data found for any turbine in this farm", "NO_INDICATORS", status.HTTP_404_NOT_FOUND)
             
             turbine_data_list = [t["data"] for t in turbine_indicators]
             farm_indicators = aggregate_turbine_indicators(turbine_data_list)
@@ -245,15 +205,8 @@ class FarmIndicatorAPIView(APIView):
                 "data": farm_indicators,
             }
             
-            return Response({
-                "success": True,
-                "data": result
-            })
+            return success_response(result)
         
         except Exception as e:
             logger.error(f"Error in FarmIndicatorAPIView.get for farm {farm_id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

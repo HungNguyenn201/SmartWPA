@@ -4,6 +4,7 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 
 from facilities.models import Turbines
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 from api_gateway.turbines_analysis.helpers.timeseries_helpers import load_timeseries_data
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
@@ -15,18 +16,18 @@ def load_working_period_data(
     turbine: Turbines,
     start_time: Optional[int],
     end_time: Optional[int]
-) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str]]:
-    df, data_source_used, error_msg = load_timeseries_data(
+) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[Dict], Optional[str]]:
+    df, data_source_used, units_meta, error_msg = load_timeseries_data(
         turbine, REQUIRED_SOURCES, start_time, end_time
     )
     
     if df is None or df.empty:
-        return None, None, error_msg or "No data available for the specified time range"
+        return None, None, None, error_msg or "No data available for the specified time range"
     
     if 'power' not in df.columns or 'wind_speed' not in df.columns:
-        return None, None, "Missing required data: power and wind_speed are required"
+        return None, None, None, "Missing required data: power and wind_speed are required"
     
-    return df, data_source_used, None
+    return df, data_source_used, units_meta, None
 
 
 def validate_working_period_params(
@@ -115,11 +116,12 @@ def calculate_performance(
     adjusted_factors = mean_wind_factor + (wind_factors - mean_wind_factor) * variation_factor
     result_df['adjusted_wind_factor'] = np.clip(adjusted_factors, 0.1, 1.5)
     
-    # Parse timestamp: nếu > 1e12 thì là milliseconds, ngược lại là seconds
-    if result_df['timestamp'].max() > 1e12:
-        result_df['datetime'] = pd.to_datetime(result_df['timestamp'], unit='ms')
-    else:
-        result_df['datetime'] = pd.to_datetime(result_df['timestamp'], unit='s')
+    # Chuẩn hoá timestamp về ms (single source of truth) rồi parse
+    result_df['timestamp'] = result_df['timestamp'].apply(
+        lambda x: to_epoch_ms(x) if pd.notna(x) else None
+    )
+    result_df = result_df[result_df['timestamp'].notna()].copy()
+    result_df['datetime'] = pd.to_datetime(result_df['timestamp'].astype('int64'), unit='ms')
     result_df.set_index('datetime', inplace=True)
     
     monthly_groups = result_df.groupby(pd.Grouper(freq='MS'))
@@ -185,7 +187,8 @@ def format_working_period_response(
     turbine: Turbines,
     start_time: Optional[int],
     end_time: Optional[int],
-    variation: int
+    variation: int,
+    units_meta: Optional[Dict] = None,
 ) -> Dict:
     return {
         "turbine_id": turbine.id,
@@ -195,6 +198,7 @@ def format_working_period_response(
         "start_time": start_time,
         "end_time": end_time,
         "variation": variation,
+        "units": units_meta,
         "data": performance_data
     }
 
@@ -205,6 +209,9 @@ def get_cache_key(
     end_time: Optional[int],
     variation: int
 ) -> str:
-    time_str = f"{start_time}_{end_time}" if start_time and end_time else "all"
+    # Avoid cache collisions when only one bound is provided.
+    st = "none" if start_time is None else str(start_time)
+    et = "none" if end_time is None else str(end_time)
+    time_str = f"{st}_{et}"
     return f"working_period_turbine_{turbine_id}_{time_str}_{variation}"
 

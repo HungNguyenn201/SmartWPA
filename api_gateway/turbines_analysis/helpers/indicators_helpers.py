@@ -4,6 +4,10 @@ from analytics.models import IndicatorData
 
 def serialize_indicator_data(indicator_data: IndicatorData, daily_production_total=None, capacity_factor_avg=None) -> Dict:
     
+    capacity_factor_value = getattr(indicator_data, "capacity_factor", None)
+    if capacity_factor_value is None:
+        capacity_factor_value = capacity_factor_avg
+
     return {
         "AverageWindSpeed": indicator_data.average_wind_speed,
         "ReachableEnergy": indicator_data.reachable_energy,
@@ -21,7 +25,7 @@ def serialize_indicator_data(indicator_data: IndicatorData, daily_production_tot
         "TotalCurtailmentPoints": indicator_data.total_curtailment_points,
         "DailyProduction": daily_production_total,
         "RatedPower": indicator_data.rated_power,
-        "CapacityFactor": capacity_factor_avg,
+        "CapacityFactor": capacity_factor_value,
         "Tba": indicator_data.tba,
         "Pba": indicator_data.pba,
         "Mtbf": indicator_data.mtbf,

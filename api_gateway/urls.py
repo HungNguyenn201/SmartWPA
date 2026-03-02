@@ -52,6 +52,18 @@ from api_gateway.turbines_analysis.computation import ComputationAPIView
 from api_gateway.turbines_analysis.yaw_error import TurbineYawErrorAPIView
 from api_gateway.turbines_analysis.timeseries import TurbineTimeseriesAPIView
 from api_gateway.turbines_analysis.working_period import TurbineWorkingPeriodAPIView
+from api_gateway.turbines_analysis.failure_charts import (
+    FarmFailureIndicatorsChartAPIView,
+    FarmFailureTimelineChartAPIView,
+)
+from api_gateway.turbines_analysis.cross_data_analysis import (
+    FarmCrossDataAnalysisAPIView,
+    TurbineCrossDataAnalysisAPIView,
+)
+from api_gateway.turbines_analysis.monthly_dashboard import (
+    FarmDashboardMonthlyAnalysisAPIView,
+    TurbineDashboardMonthlyAnalysisAPIView,
+)
 
 urlpatterns = [
     # Authentication endpoints
@@ -116,10 +128,17 @@ urlpatterns = [
     path('api/turbines/<int:turbine_id>/yaw-error/', TurbineYawErrorAPIView.as_view(), name='turbine-yaw-error'),
     path('api/turbines/<int:turbine_id>/timeseries/', TurbineTimeseriesAPIView.as_view(), name='turbine-timeseries'),
     path('api/turbines/<int:turbine_id>/working-period/', TurbineWorkingPeriodAPIView.as_view(), name='turbine-working-period'),
+    path('api/turbines/<int:turbine_id>/cross-data-analysis/', TurbineCrossDataAnalysisAPIView.as_view(), name='turbine-cross-data-analysis'),
+    path('api/turbines/<int:turbine_id>/dashboard/monthly-analysis/', TurbineDashboardMonthlyAnalysisAPIView.as_view(), name='turbine-dashboard-monthly-analysis'),
     
     # Farm analysis endpoints
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
     path('api/farms/<int:farm_id>/weibull/', FarmWeibullAPIView.as_view(), name='farm-weibull'),
     path('api/farms/<int:farm_id>/power-curve/', FarmPowerCurveAPIView.as_view(), name='farm-power-curve'),
+    # Failure charts (split into 2 APIs for FE simplicity)
+    path('api/farms/<int:farm_id>/failure-indicators/', FarmFailureIndicatorsChartAPIView.as_view(), name='farm-failure-indicators'),
+    path('api/farms/<int:farm_id>/failure-timeline/', FarmFailureTimelineChartAPIView.as_view(), name='farm-failure-timeline'),
+    path('api/farms/<int:farm_id>/dashboard/monthly-analysis/', FarmDashboardMonthlyAnalysisAPIView.as_view(), name='farm-dashboard-monthly-analysis'),
+    path('api/farms/<int:farm_id>/cross-data-analysis/', FarmCrossDataAnalysisAPIView.as_view(), name='farm-cross-data-analysis'),
 ]
 

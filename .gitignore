@@ -87,4 +87,10 @@ celerybeat.pid
 # README.txt
 test.py
 test_turbine_constants.py
-docs/
+
+# SmartHIS client certificates / secrets (MUST NOT be committed)
+acquisition/smarthis/client_crt/*.crt
+acquisition/smarthis/client_crt/*.key
+acquisition/smarthis/client_crt/*.txt
+!acquisition/smarthis/client_crt/*.example
+!acquisition/smarthis/client_crt/README.md

@@ -5,10 +5,10 @@ URL_CURRENT = '/smarthisapi/current'
 URL_SAMPLE = '/smarthisapi/historical/sampled'
 URL_CALCULATED = '/smarthisapi/historical/calculated'
 
-CA_CERT_PATH = 'acquisition/smarthis/client_crt/signing-ca.crt'
-CLIENT_CERT_PATH = 'acquisition/smarthis/client_crt/client.crt'
-CLIENT_KEY_PATH = 'acquisition/smarthis/client_crt/client.key'
-PASSWORD_PATH = 'acquisition/smarthis/client_crt/password.txt'
+CA_CERT_PATH = "acquisition/smarthis/client_crt/signing-ca.crt"
+CLIENT_CERT_PATH = "acquisition/smarthis/client_crt/client.crt"
+CLIENT_KEY_PATH = "acquisition/smarthis/client_crt/client.key"
+PASSWORD_PATH = "acquisition/smarthis/client_crt/password.txt"
 
 MAXIMUM_LEN_GET_DATA = 30 * 24*60*60000
 TIME_OUT_REQUEST = 60  # seconds
@@ -45,6 +45,6 @@ MAX_WORKERS = 5
 def read_file(file_path):
     if os.path.exists(file_path) is False:
         return None
-    with open(file_path) as f:
+    with open(file_path, encoding="utf-8") as f:
         lines = f.readlines()
     return lines

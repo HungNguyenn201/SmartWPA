@@ -8,6 +8,7 @@ from facilities.models import Turbines
 from analytics.models import Computation
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -22,20 +23,12 @@ class TurbineYawErrorAPIView(APIView):
                 turbine_id = request.query_params.get('turbine_id')
             
             if not turbine_id:
-                return Response({
-                    "success": False,
-                    "error": "Turbine ID must be specified",
-                    "code": "MISSING_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response("Turbine ID must be specified", "MISSING_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             permission_response = check_object_permission(
                 request, self, turbine,
@@ -60,11 +53,7 @@ class TurbineYawErrorAPIView(APIView):
                     start_time = int(start_time)
                     end_time = int(end_time)
                 except ValueError:
-                    return Response({
-                        "success": False,
-                        "error": "start_time and end_time must be integers",
-                        "code": "INVALID_PARAMETERS"
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return error_response("start_time and end_time must be integers", "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
                 
                 computation = computation_query.filter(
                     start_time=start_time,
@@ -74,28 +63,16 @@ class TurbineYawErrorAPIView(APIView):
                 computation = computation_query.order_by('-end_time').first()
             
             if not computation:
-                return Response({
-                    "success": False,
-                    "error": "No yaw error analysis found for this turbine",
-                    "code": "NO_YAW_ERROR"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No yaw error analysis found for this turbine", "NO_YAW_ERROR", status.HTTP_404_NOT_FOUND)
             
             yaw_error_data = computation.yaw_error_points.values('angle', 'frequency').order_by('angle')
             yaw_error_stats = computation.yaw_error_statistics
             
             if not yaw_error_data.exists():
-                return Response({
-                    "success": False,
-                    "error": "No yaw error data found for this computation",
-                    "code": "NO_YAW_ERROR_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No yaw error data found for this computation", "NO_YAW_ERROR_DATA", status.HTTP_404_NOT_FOUND)
             
             if not yaw_error_stats:
-                return Response({
-                    "success": False,
-                    "error": "No yaw error statistics found for this computation",
-                    "code": "NO_YAW_ERROR_STATS"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("No yaw error statistics found for this computation", "NO_YAW_ERROR_STATS", status.HTTP_404_NOT_FOUND)
             
             result = {
                 "turbine_id": turbine.id,
@@ -115,15 +92,8 @@ class TurbineYawErrorAPIView(APIView):
                 }
             }
             
-            return Response({
-                "success": True,
-                "data": result
-            })
+            return success_response(result)
         
         except Exception as e:
             logger.error(f"Error in TurbineYawErrorAPIView.get for turbine {turbine_id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

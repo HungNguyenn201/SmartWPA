@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from facilities.models import Turbines
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
+from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 from api_gateway.turbines_analysis.helpers.working_period_helpers import (
     validate_working_period_params,
     load_working_period_data,
@@ -36,20 +37,12 @@ class TurbineWorkingPeriodAPIView(APIView):
             )
             
             if not is_valid:
-                return Response({
-                    "success": False,
-                    "error": error_msg,
-                    "code": "INVALID_PARAMETERS"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(error_msg, "INVALID_PARAMETERS", status.HTTP_400_BAD_REQUEST)
             
             try:
                 turbine = Turbines.objects.select_related('farm', 'farm__investor').get(id=turbine_id)
             except Turbines.DoesNotExist:
-                return Response({
-                    "success": False,
-                    "error": "Turbine not found",
-                    "code": "TURBINE_NOT_FOUND"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response("Turbine not found", "TURBINE_NOT_FOUND", status.HTTP_404_NOT_FOUND)
             
             permission_response = check_object_permission(
                 request, self, turbine,
@@ -64,21 +57,18 @@ class TurbineWorkingPeriodAPIView(APIView):
             )
             cached_result = cache.get(cache_key)
             if cached_result:
-                return Response({
-                    "success": True,
-                    "data": cached_result
-                })
+                return success_response(cached_result)
             
-            df, data_source_used, error_msg = load_working_period_data(
+            df, data_source_used, units_meta, error_msg = load_working_period_data(
                 turbine, params['start_time'], params['end_time']
             )
             
             if df is None or df.empty:
-                return Response({
-                    "success": False,
-                    "error": error_msg or "No data available for the specified time range",
-                    "code": "NO_DATA"
-                }, status=status.HTTP_404_NOT_FOUND)
+                return error_response(
+                    error_msg or "No data available for the specified time range",
+                    "NO_DATA",
+                    status.HTTP_404_NOT_FOUND,
+                )
             
             performance_data = calculate_performance(
                 df, params['variation']
@@ -86,20 +76,12 @@ class TurbineWorkingPeriodAPIView(APIView):
             
             result = format_working_period_response(
                 performance_data, turbine, params['start_time'],
-                params['end_time'], params['variation']
+                params['end_time'], params['variation'], units_meta=units_meta
             )
             
             cache.set(cache_key, result, timeout=3600)
-            
-            return Response({
-                "success": True,
-                "data": result
-            })
+            return success_response(result)
             
         except Exception as e:
             logger.error(f"Error in TurbineWorkingPeriodAPIView.get for turbine {turbine_id}: {str(e)}", exc_info=True)
-            return Response({
-                "success": False,
-                "error": "An unexpected error occurred",
-                "code": "INTERNAL_SERVER_ERROR"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response("An unexpected error occurred", "INTERNAL_SERVER_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)

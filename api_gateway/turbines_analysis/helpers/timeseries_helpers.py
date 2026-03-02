@@ -4,7 +4,9 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 
 from facilities.models import Turbines
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 from api_gateway.turbines_analysis.helpers.computation_helper import load_turbine_data
+from analytics.models import Computation, ClassificationPoint
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -24,14 +26,65 @@ def load_timeseries_data(
     sources: List[str],
     start_time: Optional[int],
     end_time: Optional[int]
-) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str]]:
+) -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[Dict], Optional[str]]:
     field_names = [SOURCE_TO_FIELD_MAPPING.get(source) for source in sources]
     field_names = [f for f in field_names if f]
     
     if not field_names:
         return None, None, "No valid field names found for sources"
     
-    df, data_source_used, error_info = load_turbine_data(turbine, start_time, end_time, 'db')
+    # Fast path (query-only): if requesting only wind_speed/power and we have persisted classification points.
+    req_set = set(sources)
+    if req_set.issubset({"power", "wind_speed"}):
+        try:
+            comp_q = Computation.objects.filter(
+                turbine=turbine, computation_type="classification", is_latest=True
+            )
+            if start_time is not None and end_time is not None:
+                comp = comp_q.filter(start_time=start_time, end_time=end_time).first()
+                # If there's no exact match, try a covering computation (latest) as a fallback.
+                if comp is None:
+                    comp = comp_q.order_by("-end_time").first()
+                    if comp and not (int(comp.start_time) <= int(start_time) and int(comp.end_time) >= int(end_time)):
+                        comp = None
+            else:
+                comp = comp_q.order_by("-end_time").first()
+            if comp is not None:
+                pts = ClassificationPoint.objects.filter(computation=comp)
+                if start_time is not None:
+                    pts = pts.filter(timestamp__gte=int(start_time))
+                if end_time is not None:
+                    pts = pts.filter(timestamp__lte=int(end_time))
+                cols = ["timestamp"]
+                if "wind_speed" in req_set:
+                    cols.append("wind_speed")
+                if "power" in req_set:
+                    cols.append("active_power")
+                rows = list(pts.values_list(*cols))
+                if rows:
+                    df_selected = pd.DataFrame(rows, columns=["timestamp"] + [c for c in cols if c != "timestamp"])
+                    # Normalize timestamp to ms (ClassificationPoint is stored in ms).
+                    df_selected["timestamp"] = pd.to_numeric(df_selected["timestamp"], errors="coerce").astype("int64")
+                    # Rename to requested source names
+                    if "active_power" in df_selected.columns:
+                        df_selected.rename(columns={"active_power": "power"}, inplace=True)
+                    units_meta = {
+                        "canonical": {
+                            "TIMESTAMP": "ms",
+                            "WIND_SPEED": "m/s",
+                            "ACTIVE_POWER": "kW",
+                        },
+                        "raw_config": {
+                            "config_scope": "classification_points",
+                            "config_id": None,
+                            "data_source": "db",
+                        },
+                    }
+                    return df_selected, "classification_points", units_meta, None
+        except Exception as e:
+            logger.warning("ClassificationPoint fast-path failed: %s", str(e), exc_info=True)
+
+    df, data_source_used, error_info, units_meta = load_turbine_data(turbine, start_time, end_time, 'db')
     
     if df is None or df.empty:
         if start_time is None or end_time is None:
@@ -41,11 +94,11 @@ def load_timeseries_data(
         if error_info:
             sources_tried = '; '.join(f"{k.capitalize()}: {v}" for k, v in error_info.items())
             error_msg += f". Tried: {sources_tried}"
-        return None, None, error_msg
+        return None, None, None, error_msg
     
     available_columns = ['TIMESTAMP'] + [col for col in field_names if col in df.columns]
     if len(available_columns) == 1:
-        return None, None, "None of the requested sources are available in the data"
+        return None, None, None, "None of the requested sources are available in the data"
     
     df_selected = df[available_columns].copy()
     column_mapping = {'TIMESTAMP': 'timestamp'}
@@ -59,12 +112,11 @@ def load_timeseries_data(
         # Convert từ nanoseconds (pandas datetime) sang milliseconds
         df_selected['timestamp'] = df_selected['timestamp'].astype(np.int64) // 10**6
     elif df_selected['timestamp'].dtype == 'int64':
-        # Nếu đã là milliseconds, giữ nguyên; nếu là seconds, convert sang milliseconds
-        if df_selected['timestamp'].max() < 1e12:
-            df_selected['timestamp'] = df_selected['timestamp'] * 1000
-        # Nếu đã > 1e12 thì đã là milliseconds, giữ nguyên
+        df_selected['timestamp'] = df_selected['timestamp'].apply(
+            lambda x: to_epoch_ms(x) if pd.notna(x) else None
+        )
     
-    return df_selected, data_source_used, None
+    return df_selected, data_source_used, units_meta, None
 
 
 def resample_dataframe(df: pd.DataFrame, mode: str) -> pd.DataFrame:
@@ -72,11 +124,11 @@ def resample_dataframe(df: pd.DataFrame, mode: str) -> pd.DataFrame:
         return df
     
     if not pd.api.types.is_datetime64_any_dtype(df.index):
-        # Nếu index là milliseconds (> 1e12), parse với unit='ms'; nếu là seconds, parse với unit='s'
-        if df.index.max() > 1e12:
-            df.index = pd.to_datetime(df.index, unit='ms')
-        else:
-            df.index = pd.to_datetime(df.index, unit='s')
+        ms = df.index.to_series().apply(lambda x: to_epoch_ms(x) if pd.notna(x) else None)
+        valid = ms.notna()
+        if valid.any():
+            df = df.loc[valid].copy()
+            df.index = pd.to_datetime(ms[valid].astype("int64"), unit="ms")
     
     resample_map = {
         'hourly': 'H',
@@ -131,7 +183,8 @@ def format_timeseries_response(
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
     mode: str = 'raw',
-    data_source_used: Optional[str] = None
+    data_source_used: Optional[str] = None,
+    units_meta: Optional[Dict] = None
 ) -> Dict:
     if df.index.name == 'timestamp' or 'timestamp' not in df.columns:
         df = df.reset_index()
@@ -143,10 +196,7 @@ def format_timeseries_response(
         # Convert từ nanoseconds (pandas datetime) sang milliseconds
         df['timestamp'] = df['timestamp'].astype(np.int64) // 10**6
     elif df['timestamp'].dtype in ['int64', 'float64']:
-        # Nếu là seconds (< 1e12), convert sang milliseconds
-        if df['timestamp'].max() < 1e12:
-            df['timestamp'] = df['timestamp'] * 1000
-        # Nếu đã > 1e12 thì đã là milliseconds, giữ nguyên
+        df['timestamp'] = df['timestamp'].apply(lambda x: to_epoch_ms(x) if pd.notna(x) else None)
     
     df.sort_values('timestamp', inplace=True)
     df = df.dropna(how='all')
@@ -161,6 +211,7 @@ def format_timeseries_response(
         "start_time": start_time,
         "end_time": end_time,
         "mode": mode,
+        "units": units_meta,
         "data": df.to_dict('records')
     }
     
@@ -175,5 +226,9 @@ def get_cache_key(
     mode: str
 ) -> str:
     sources_str = '-'.join(sorted(sources))
-    time_str = f"{start_time}_{end_time}" if start_time and end_time else "all"
+    # Avoid cache collisions when only one bound is provided.
+    # Example bug (before): start_time=... & end_time=None shared the same key as "no bounds".
+    st = "none" if start_time is None else str(start_time)
+    et = "none" if end_time is None else str(end_time)
+    time_str = f"{st}_{et}"
     return f"timeseries_turbine_{turbine_id}_{sources_str}_{time_str}_{mode}"
