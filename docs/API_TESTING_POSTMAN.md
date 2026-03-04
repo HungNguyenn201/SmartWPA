@@ -33,7 +33,6 @@ Tài liệu này hướng dẫn test **từng API** của SmartWPA backend bằn
   - [5.4 Failure Indicators (Histogram)](#54-failure-indicators-histogram)
   - [5.5 Failure Timeline (Gantt)](#55-failure-timeline-gantt)
   - [5.6 Monthly Dashboard (Farm)](#56-monthly-dashboard-farm)
-  - [5.7 Cross Data Analysis (Farm)](#57-cross-data-analysis-farm)
 - [6. Negative Tests (Kiểm thử lỗi)](#6-negative-tests)
 - [7. Postman Collection](#7-postman-collection)
 
@@ -1317,6 +1316,8 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 | `group.min` | float | Không | `null` | Giá trị min (auto nếu null) |
 | `group.max` | float | Không | `null` | Giá trị max (auto nếu null) |
 
+**Mapping tham số API ↔ Manual 1.3.6.2.7:** Data → `x_source`, `y_source`, `group_by`, `group.*`, `only_computation_data`, `filters.classifications`; Regression → `regression.type`, `regression.force_zero_intercept`; Date time → `datetime.start_time_ms`, `datetime.end_time_ms` (và start_hour/end_hour); Advanced filters → `filters.months`, `filters.day_night`, `filters.direction`, `filters.ranges`. Tham số mở rộng API (không có trong manual): `max_points` (giới hạn điểm trả về), `include_statistics` (tương đương "Show statistics chart" trong manual). `only_computation_data` = "Only computation data" trong manual.
+
 **Giá trị `group_by` hợp lệ (turbine):**
 
 | Giá trị | Mô tả |
@@ -1524,6 +1525,8 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 
 ### Response (200) — Ví dụ với classification + regression + statistics
 
+Theo manual 1.3.6.2.7, response không echo `datetime`/`filters` và không trả `units`/source metadata. Cấu trúc:
+
 ```json
 {
   "success": true,
@@ -1543,25 +1546,14 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
       "r2": 0.945,
       "rmse": 152.3
     },
-    "datetime": {
+    "period": {
       "start_time_ms": 1325376000000,
-      "end_time_ms": 1356998400000,
-      "start_hour": null,
-      "end_hour": null
-    },
-    "filters": {
-      "months": [1, 2, 3],
-      "day_night": "",
-      "classifications": ["NORMAL"],
-      "direction": {},
-      "ranges": []
+      "end_time_ms": 1356998400000
     },
     "summary": {
       "rows_before_filters": 52560,
       "rows_after_filters": 8500,
-      "points_returned": 8500,
-      "data_source_used": "db",
-      "units": {"canonical": {"WIND_SPEED": "m/s", "ACTIVE_POWER": "kW"}}
+      "points_returned": 8500
     },
     "points": [
       {"x": 5.2, "y": 1200.5, "group": "NORMAL"},
@@ -1610,7 +1602,7 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 
 // group_by không hợp lệ
 { "x_source": "wind_speed", "y_source": "power", "group_by": "turbine" }
-// → 400, code: INVALID_PARAMETERS (turbine chỉ hợp lệ ở farm level)
+// → 400, code: INVALID_PARAMETERS (group_by turbine không hỗ trợ; API chỉ turbine-level)
 ```
 
 ---
@@ -2117,114 +2109,7 @@ GET {{base_url}}/api/farms/{{farm_id}}/dashboard/monthly-analysis/?start_time={{
 
 > **Farm dashboard** có thêm `table.by_turbine` cho phép frontend hiển thị bảng chi tiết theo turbine.
 
----
-
-### 5.7 Cross Data Analysis (Farm)
-
-| | |
-|---|---|
-| **Method** | POST |
-| **URL** | `{{base_url}}/api/farms/{{farm_id}}/cross-data-analysis/` |
-| **Body** | JSON |
-
-Tham số body **giống hệt** turbine-level (mục 4.13), ngoại trừ:
-
-- `group_by` thêm giá trị `"turbine"` (nhóm theo turbine — chỉ farm level)
-- Response có thêm `turbines` (danh sách turbine) và `summary.turbines_count`
-- Mỗi point có thêm `turbine_id`
-
-#### TH1: Nhóm theo turbine
-
-```json
-{
-  "x_source": "wind_speed",
-  "y_source": "power",
-  "group_by": "turbine",
-  "regression": { "enabled": true, "type": "linear" },
-  "datetime": {
-    "start_time_ms": 1325376000000,
-    "end_time_ms": 1356998400000
-  }
-}
-```
-
-#### TH2: Nhóm theo classification (so sánh toàn farm)
-
-```json
-{
-  "x_source": "wind_speed",
-  "y_source": "power",
-  "group_by": "classification",
-  "regression": { "enabled": true, "type": "polynomial2" },
-  "include_statistics": true,
-  "datetime": {
-    "start_time_ms": 1325376000000,
-    "end_time_ms": 1356998400000
-  }
-}
-```
-
-#### TH3: Lọc classifications + monthly grouping
-
-```json
-{
-  "x_source": "wind_speed",
-  "y_source": "power",
-  "group_by": "time_profile_monthly",
-  "filters": {
-    "classifications": ["NORMAL"]
-  },
-  "datetime": {
-    "start_time_ms": 1325376000000,
-    "end_time_ms": 1356998400000
-  }
-}
-```
-
-**Response (200) — TH1:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "farm_id": 1,
-    "farm_name": "Farm A",
-    "x_source": "wind_speed",
-    "y_source": "power",
-    "group_by": "turbine",
-    "regression": {
-      "enabled": true,
-      "type": "linear",
-      "coefficients": [250.5, -100.2],
-      "equation": "y = 250.50x + -100.20",
-      "r2": 0.89,
-      "rmse": 320.5
-    },
-    "datetime": {
-      "start_time_ms": 1325376000000,
-      "end_time_ms": 1356998400000,
-      "start_hour": null,
-      "end_hour": null
-    },
-    "filters": {},
-    "summary": {
-      "turbines_count": 10,
-      "rows_before_filters": 525600,
-      "rows_after_filters": 480000,
-      "points_returned": 20000,
-      "data_source_used": "db"
-    },
-    "turbines": [
-      {"turbine_id": 1, "turbine_name": "WT1"},
-      {"turbine_id": 2, "turbine_name": "WT2"}
-    ],
-    "points": [
-      {"x": 5.2, "y": 1200.5, "group": "1", "turbine_id": 1},
-      {"x": 8.1, "y": 3100.0, "group": "2", "turbine_id": 2}
-    ]
-  }
-}
-```
+Cross Data Analysis theo manual (1.3.6.2.7) **chỉ có ở turbine level**; không có API farm-level.
 
 ---
 
@@ -2365,7 +2250,6 @@ Trong repo đã có sẵn template collection + environment tại:
    → Failure Indicators
    → Failure Timeline
    → Monthly Dashboard
-   → Cross Data Analysis
 6) Negative Tests
 7) Auth → Logout
 ```

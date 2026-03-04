@@ -310,7 +310,7 @@ def apply_time_filters(
     night_start: int = CROSS_ANALYSIS_DAY_NIGHT_NIGHT_START_HOUR,
     night_end: int = CROSS_ANALYSIS_DAY_NIGHT_NIGHT_END_HOUR,
 ) -> pd.DataFrame:
-    """Apply hour, month, day/night filters in place. day_night in ('day'|'night'|'')."""
+    """Apply hour, month, day/night filters (manual 1.3.6.2.7 Advanced filters: Month, Day/Night). day_night in ('day'|'night'|'')."""
     if start_hour is not None:
         try:
             df = df[df["_hour"] >= int(start_hour)]
@@ -335,7 +335,7 @@ def apply_time_filters(
 
 
 # -----------------------------------------------------------------------------
-# Direction and range filters
+# Direction and range filters (manual 1.3.6.2.7 Advanced filters: Direction, Source)
 # -----------------------------------------------------------------------------
 
 
@@ -355,7 +355,7 @@ def apply_direction_filter(
 
 
 def apply_range_filters(df: pd.DataFrame, ranges: List[Dict[str, Any]]) -> pd.DataFrame:
-    """Apply per-source min/max filters."""
+    """Apply per-source min/max filters (manual 1.3.6.2.7 Advanced filters: Source)."""
     for r in ranges:
         src = r.get("source")
         if not src or src not in df.columns:

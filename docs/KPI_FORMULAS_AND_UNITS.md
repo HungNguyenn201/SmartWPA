@@ -615,7 +615,10 @@ Response regression: `{ type, coefficients, equation, r2, rmse }`
 | `time_profile_monthly` | Gom theo tên tháng bất kể năm: "Jan", "Feb", ... |
 | `time_profile_seasonally` | Gom theo quý bất kể năm: "Q1", "Q2", "Q3", "Q4" |
 | `source` | Trục Z: tô màu theo giá trị liên tục của 1 source (binning) |
-| `turbine` | (Chỉ farm-level) Gom theo turbine |
+
+Cross Data Analysis theo manual (1.3.6.2.7) **chỉ có ở turbine level**; không hỗ trợ farm-level hay `group_by: turbine`.
+
+**Response:** Theo manual, API không trả metadata đơn vị (`units`) hay nguồn dữ liệu (`data_source_used`) trong output. Response chỉ gồm: metadata turbine, `x_source`, `y_source`, `group_by`, `regression`, `period`, `summary` (rows_before_filters, rows_after_filters, points_returned), `points`, và tùy chọn `statistics`. Nếu sau này bổ sung `units`/source thì coi là mở rộng.
 
 ### 13.3 Classification filter
 
@@ -629,3 +632,8 @@ Khi `include_statistics: true`, response bổ sung `statistics`:
 - `x_stats`, `y_stats`: mean, std, min, max, median, count
 
 Statistics được tính **trước khi downsample** để đảm bảo phân phối chính xác.
+
+### 13.5 Backlog (manual có, API chưa)
+
+- **Regression "Linear variance ratio"**: manual 1.3.6.2.7 liệt kê loại này; API hiện chưa hỗ trợ, có thể bổ sung sau.
+- **Group "Time profile Yearly"**: manual có Time profile → Monthly, Seasonally, Yearly; API hiện chỉ có `time_profile_monthly` và `time_profile_seasonally`, chưa có `time_profile_yearly`.
