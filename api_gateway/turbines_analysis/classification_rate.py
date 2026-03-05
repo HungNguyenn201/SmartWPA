@@ -9,6 +9,7 @@ from analytics.models import Computation
 from permissions.views import CanViewTurbine
 from api_gateway.management.acquisition.helpers import check_object_permission
 from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -75,8 +76,8 @@ class ClassificationRateAPIView(APIView):
             result = {
                 "turbine_id": turbine.id,
                 "turbine_name": turbine.name,
-                "start_time": computation.start_time,
-                "end_time": computation.end_time,
+                "start_time": to_epoch_ms(computation.start_time) if computation.start_time else None,
+                "end_time": to_epoch_ms(computation.end_time) if computation.end_time else None,
                 "farm_name": turbine.farm.name if turbine.farm else None,
                 "classification_rates": classification_rates,
                 "classification_map": classification_map,

@@ -14,6 +14,7 @@ from facilities.models import Farm, Turbines
 from permissions.views import CanViewFarm
 from api_gateway.management.acquisition.helpers import check_object_permission
 from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 
 logger = logging.getLogger("api_gateway.turbines_analysis")
 
@@ -37,9 +38,17 @@ def _month_start_ms_list(start_ms: int, end_ms: int) -> List[int]:
     """
     Build month-start timestamps (ms) in UTC covering [start_ms, end_ms] (inclusive).
     FE can format these ticks as J, F, M... and still disambiguate by year.
+    
+    Args:
+        start_ms: Start timestamp (will be normalized to milliseconds)
+        end_ms: End timestamp (will be normalized to milliseconds)
     """
     if end_ms < start_ms:
         return []
+
+    # Normalize timestamps to milliseconds (handle legacy data in seconds)
+    start_ms = to_epoch_ms(start_ms) or start_ms
+    end_ms = to_epoch_ms(end_ms) or end_ms
 
     start_dt = datetime.fromtimestamp(start_ms / 1000.0, tz=timezone.utc)
     end_dt = datetime.fromtimestamp(end_ms / 1000.0, tz=timezone.utc)
@@ -133,10 +142,14 @@ class FarmFailureIndicatorsChartAPIView(APIView):
                 if not ind:
                     continue
 
-                if latest_start_time is None or comp.start_time < latest_start_time:
-                    latest_start_time = comp.start_time
-                if latest_end_time is None or comp.end_time > latest_end_time:
-                    latest_end_time = comp.end_time
+                # Normalize timestamps from DB to milliseconds
+                comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                comp_end_ms = to_epoch_ms(comp.end_time) or comp.end_time
+                
+                if latest_start_time is None or comp_start_ms < latest_start_time:
+                    latest_start_time = comp_start_ms
+                if latest_end_time is None or comp_end_ms > latest_end_time:
+                    latest_end_time = comp_end_ms
 
                 turbines_out.append({"turbine_id": turbine.id, "turbine_name": turbine.name})
 
@@ -156,11 +169,15 @@ class FarmFailureIndicatorsChartAPIView(APIView):
             if not turbines_out:
                 return error_response("No indicators data found", "NO_RESULT_FOUND", status.HTTP_404_NOT_FOUND)
 
+            # Normalize timestamps to milliseconds before returning
+            normalized_start_time = to_epoch_ms(latest_start_time) if latest_start_time is not None else None
+            normalized_end_time = to_epoch_ms(latest_end_time) if latest_end_time is not None else None
+            
             result = {
                 "farm_id": farm.id,
                 "farm_name": farm.name,
-                "start_time": latest_start_time,
-                "end_time": latest_end_time,
+                "start_time": normalized_start_time,
+                "end_time": normalized_end_time,
                 "turbines": turbines_out,
                 "indicators": indicators,
                 "unit": {"Mttr": "days", "Mttf": "days", "Mtbf": "days"},
@@ -247,15 +264,19 @@ class FarmFailureTimelineChartAPIView(APIView):
                 if not comp:
                     continue
 
-                if latest_start_time is None or comp.start_time < latest_start_time:
-                    latest_start_time = comp.start_time
-                if latest_end_time is None or comp.end_time > latest_end_time:
-                    latest_end_time = comp.end_time
+                # Normalize timestamps from DB to milliseconds
+                comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                comp_end_ms = to_epoch_ms(comp.end_time) or comp.end_time
+                
+                if latest_start_time is None or comp_start_ms < latest_start_time:
+                    latest_start_time = comp_start_ms
+                if latest_end_time is None or comp_end_ms > latest_end_time:
+                    latest_end_time = comp_end_ms
 
                 evs = events_by_comp.get(comp.id, [])
                 # Clip events to requested/selected range so the X-axis doesn't get distorted by out-of-range rows.
-                clip_start = start_time if start_time is not None else comp.start_time
-                clip_end = end_time if end_time is not None else comp.end_time
+                clip_start = to_epoch_ms(start_time) if start_time is not None else comp_start_ms
+                clip_end = to_epoch_ms(end_time) if end_time is not None else comp_end_ms
 
                 clipped_events: List[Dict[str, Any]] = []
                 for e in evs:
@@ -285,14 +306,18 @@ class FarmFailureTimelineChartAPIView(APIView):
             if not turbines_out:
                 return error_response("No classification data found", "NO_RESULT_FOUND", status.HTTP_404_NOT_FOUND)
 
+            # Normalize timestamps to milliseconds before returning
+            normalized_start_time = to_epoch_ms(latest_start_time) if latest_start_time is not None else None
+            normalized_end_time = to_epoch_ms(latest_end_time) if latest_end_time is not None else None
+            
             result = {
                 "farm_id": farm.id,
                 "farm_name": farm.name,
-                "start_time": latest_start_time,
-                "end_time": latest_end_time,
+                "start_time": normalized_start_time,
+                "end_time": normalized_end_time,
                 # Explicit month ticks (month-start ms) for the X-axis (J,F,M... across years)
-                "months": _month_start_ms_list(int(latest_start_time), int(latest_end_time))
-                if latest_start_time is not None and latest_end_time is not None
+                "months": _month_start_ms_list(int(normalized_start_time), int(normalized_end_time))
+                if normalized_start_time is not None and normalized_end_time is not None
                 else [],
                 "turbines": turbines_out,
             }

@@ -9,7 +9,7 @@ from facilities.models import Turbines, Farm
 from analytics.models import ClassificationPoint, Computation
 from permissions.views import CanViewTurbine, CanViewFarm
 from api_gateway.management.acquisition.helpers import check_object_permission
-from api_gateway.turbines_analysis.helpers._header import CROSS_ANALYSIS_STATUS_BY_CODE
+from api_gateway.turbines_analysis.helpers._header import CROSS_ANALYSIS_STATUS_BY_CODE, to_epoch_ms
 from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
@@ -180,8 +180,8 @@ class TurbinePowerCurveAPIView(APIView):
                 "turbine_name": turbine.name,
                 "farm_name": turbine.farm.name if turbine.farm else None,
                 "farm_id": turbine.farm.id if turbine.farm else None,
-                "start_time": computation.start_time,
-                "end_time": computation.end_time,
+                "start_time": to_epoch_ms(computation.start_time) if computation.start_time else None,
+                "end_time": to_epoch_ms(computation.end_time) if computation.end_time else None,
                 "mode": mode,
                 "time_type": time_type,
                 "power_curve": power_curve,
@@ -291,10 +291,14 @@ class FarmPowerCurveAPIView(APIView):
                             for p in pts
                         ]
                 
-                if latest_start_time is None or computation.start_time < latest_start_time:
-                    latest_start_time = computation.start_time
-                if latest_end_time is None or computation.end_time > latest_end_time:
-                    latest_end_time = computation.end_time
+                # Normalize timestamps from DB to milliseconds
+                comp_start_ms = to_epoch_ms(computation.start_time) or computation.start_time
+                comp_end_ms = to_epoch_ms(computation.end_time) or computation.end_time
+                
+                if latest_start_time is None or comp_start_ms < latest_start_time:
+                    latest_start_time = comp_start_ms
+                if latest_end_time is None or comp_end_ms > latest_end_time:
+                    latest_end_time = comp_end_ms
                 
                 power_curves.append({
                     "turbine_id": turbine.id,
@@ -310,11 +314,15 @@ class FarmPowerCurveAPIView(APIView):
                     status.HTTP_404_NOT_FOUND,
                 )
             
+            # Normalize timestamps to milliseconds before returning
+            normalized_start_time = to_epoch_ms(latest_start_time) if latest_start_time is not None else None
+            normalized_end_time = to_epoch_ms(latest_end_time) if latest_end_time is not None else None
+            
             result = {
                 "farm_id": farm.id,
                 "farm_name": farm.name,
-                "start_time": latest_start_time,
-                "end_time": latest_end_time,
+                "start_time": normalized_start_time,
+                "end_time": normalized_end_time,
                 "mode": mode,
                 "time_type": time_type,
                 "power_curves": power_curves

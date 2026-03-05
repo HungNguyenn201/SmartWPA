@@ -9,10 +9,11 @@ Focus:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from analytics.models import IndicatorData
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 
 
 # Indicators aggregation semantics at farm level:
@@ -128,10 +129,16 @@ def parse_indicator_keys(raw: Sequence[str]) -> List[str]:
     return out
 
 
-def month_start_ms_from_datetime(dt: datetime) -> int:
-    """Return UTC month-start timestamp in ms for given datetime."""
-    if dt.tzinfo is None:
+def month_start_ms_from_datetime(dt: datetime | date) -> int:
+    """Return UTC month-start timestamp in ms for given date/datetime.
+
+    Note: `TruncMonth(DateField)` can yield `datetime.date` (no tzinfo).
+    """
+    if isinstance(dt, date) and not isinstance(dt, datetime):
+        dt = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+    elif dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+
     ms = datetime(dt.year, dt.month, 1, tzinfo=timezone.utc)
     return int(ms.timestamp() * 1000)
 
@@ -143,7 +150,13 @@ def month_start_ms_from_date_parts(year: int, month: int) -> int:
 
 
 def month_start_ms_from_ms(ts_ms: int) -> int:
-    """Return UTC month-start timestamp in ms for a millisecond epoch timestamp."""
+    """Return UTC month-start timestamp in ms for a millisecond epoch timestamp.
+    
+    Args:
+        ts_ms: Timestamp (will be normalized to milliseconds if needed)
+    """
+    # Normalize to milliseconds (handle legacy data in seconds)
+    ts_ms = to_epoch_ms(ts_ms) or ts_ms
     dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=timezone.utc)
     return month_start_ms_from_datetime(dt)
 

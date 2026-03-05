@@ -9,6 +9,7 @@ from analytics.models import Computation
 from permissions.views import CanViewTurbine, CanViewFarm
 from api_gateway.management.acquisition.helpers import check_object_permission
 from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -75,8 +76,8 @@ class TurbineWeibullAPIView(APIView):
                 "turbine_name": turbine.name,
                 "farm_name": turbine.farm.name if turbine.farm else None,
                 "farm_id": turbine.farm.id if turbine.farm else None,
-                "start_time": computation.start_time,
-                "end_time": computation.end_time,
+                "start_time": to_epoch_ms(computation.start_time) if computation.start_time else None,
+                "end_time": to_epoch_ms(computation.end_time) if computation.end_time else None,
                 "data": {
                     "A": weibull_data.scale_parameter_a,
                     "K": weibull_data.shape_parameter_k,
@@ -152,8 +153,8 @@ class FarmWeibullAPIView(APIView):
             result = {
                 "farm_id": farm.id,
                 "farm_name": farm.name,
-                "start_time": computation.start_time,
-                "end_time": computation.end_time,
+                "start_time": to_epoch_ms(computation.start_time) if computation.start_time else None,
+                "end_time": to_epoch_ms(computation.end_time) if computation.end_time else None,
                 "data": {
                     "A": weibull_data.scale_parameter_a,
                     "K": weibull_data.shape_parameter_k,

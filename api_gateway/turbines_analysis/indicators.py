@@ -14,6 +14,7 @@ from api_gateway.turbines_analysis.helpers.indicators_helpers import (
     aggregate_turbine_indicators
 )
 from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
+from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
 
 logger = logging.getLogger('api_gateway.turbines_analysis')
 
@@ -97,8 +98,8 @@ class TurbineIndicatorAPIView(APIView):
                 "turbine_id": turbine.id,
                 "turbine_name": turbine.name,
                 "farm_name": turbine.farm.name if turbine.farm else None,
-                "start_time": computation.start_time,
-                "end_time": computation.end_time,
+                "start_time": to_epoch_ms(computation.start_time) if computation.start_time else None,
+                "end_time": to_epoch_ms(computation.end_time) if computation.end_time else None,
                 "data": indicator_dict
             }
             
@@ -185,10 +186,14 @@ class FarmIndicatorAPIView(APIView):
                         }
                         turbine_indicators.append(turbine_data)
                         
-                        if latest_start_time is None or computation.start_time < latest_start_time:
-                            latest_start_time = computation.start_time
-                        if latest_end_time is None or computation.end_time > latest_end_time:
-                            latest_end_time = computation.end_time
+                        # Normalize timestamps from DB to milliseconds
+                        comp_start_ms = to_epoch_ms(computation.start_time) or computation.start_time
+                        comp_end_ms = to_epoch_ms(computation.end_time) or computation.end_time
+                        
+                        if latest_start_time is None or comp_start_ms < latest_start_time:
+                            latest_start_time = comp_start_ms
+                        if latest_end_time is None or comp_end_ms > latest_end_time:
+                            latest_end_time = comp_end_ms
             
             if not turbine_indicators:
                 logger.warning(f"No indicator data found for any turbine in farm {farm_id}")
@@ -197,11 +202,15 @@ class FarmIndicatorAPIView(APIView):
             turbine_data_list = [t["data"] for t in turbine_indicators]
             farm_indicators = aggregate_turbine_indicators(turbine_data_list)
             
+            # Normalize timestamps to milliseconds before returning
+            normalized_start_time = to_epoch_ms(latest_start_time) if latest_start_time is not None else None
+            normalized_end_time = to_epoch_ms(latest_end_time) if latest_end_time is not None else None
+            
             result = {
                 "farm_id": farm.id,
                 "farm_name": farm.name,
-                "start_time": latest_start_time,
-                "end_time": latest_end_time,
+                "start_time": normalized_start_time,
+                "end_time": normalized_end_time,
                 "data": farm_indicators,
             }
             

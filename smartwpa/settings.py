@@ -32,7 +32,7 @@ allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS", "")
 ALLOWED_HOSTS = (
     [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]
     if allowed_hosts_env
-    else ["localhost", "127.0.0.1", "10.10.11.172"]
+    else ["localhost", "127.0.0.1", "192.168.234.181"]
 )
 
 # CORS: allow-all only in DEBUG by default

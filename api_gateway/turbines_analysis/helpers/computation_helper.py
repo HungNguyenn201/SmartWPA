@@ -703,6 +703,10 @@ def save_computation_results(
             'yaw_error': Computation(...)  # nếu có
         }
     """
+    # Normalize parameters to milliseconds (defensive programming)
+    start_time = to_epoch_ms(start_time) or start_time
+    end_time = to_epoch_ms(end_time) or end_time
+    
     result_start_time = computation_result.get('start_time')
     result_end_time = computation_result.get('end_time')
     

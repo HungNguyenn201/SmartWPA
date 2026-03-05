@@ -189,11 +189,13 @@ class DistributionAPIView(APIView):
                 logger.error(f"Error calculating distribution for turbine {turbine.id}, source_type={source_type}, mode={mode}, time_type={time_type}")
                 return error_response("Error calculating distribution", "CALCULATION_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
+            from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
+            
             result.update({
                 'turbine_id': turbine.id,
                 'turbine_name': turbine.name,
-                'start_time': computation.start_time,
-                'end_time': computation.end_time,
+                'start_time': to_epoch_ms(computation.start_time) if computation.start_time else None,
+                'end_time': to_epoch_ms(computation.end_time) if computation.end_time else None,
                 'farm_name': turbine.farm.name if turbine.farm else None,
                 'mode': mode,
                 'time_type': time_type,

@@ -246,6 +246,14 @@ def to_epoch_ms(value):
 
     Returns:
         int: Epoch milliseconds. Trả None nếu value là None hoặc NaN.
+    
+    Logic xử lý:
+    - < 1e9: seconds (năm < 2001) → multiply by 1000
+    - >= 1e9 và < 1e10: seconds (năm 2001-2286) → multiply by 1000
+    - >= 1e10 và < 1e12: milliseconds (năm 2001-2286) → return as-is
+    - >= 1e12 và < 1e13: milliseconds (năm 2286+) → return as-is
+    - >= 1e13 và < 1e15: microseconds → divide by 1e3
+    - >= 1e15: nanoseconds → divide by 1e6
     """
     if value is None:
         return None
@@ -255,15 +263,23 @@ def to_epoch_ms(value):
         return None
     if val != val:  # NaN
         return None
-    if val > 1e15:
+    
+    # Handle very large values (nanoseconds)
+    if val >= 1e15:
         return int(val / 1e6)   # nanoseconds -> ms
-    if val > 1e13:
+    
+    # Handle microseconds
+    if val >= 1e13:
         return int(val / 1e3)   # microseconds -> ms
-    if val > 1e12:
-        return int(val)         # already ms
-    if val < 1e9:
-        return int(val * 1000)  # seconds -> ms
-    return int(val)             # already ms
+    
+    # Handle milliseconds (>= 1e10)
+    if val >= 1e10:
+        return int(val)         # already ms (1e10 = year 2286 in ms, reasonable upper bound)
+    
+    # Handle seconds (< 1e10)
+    # All values < 1e10 are treated as seconds and converted to milliseconds
+    # This covers years 1970-2286 in seconds
+    return int(val * 1000)      # seconds -> ms
 
 
 def convert_timestamp_to_datetime(timestamp_val):

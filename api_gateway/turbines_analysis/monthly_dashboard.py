@@ -18,6 +18,7 @@ from api_gateway.turbines_analysis.helpers._header import (
     MONTHLY_DASHBOARD_VARIATION_DEFAULT,
     MONTHLY_DASHBOARD_VARIATION_MAX,
     MONTHLY_DASHBOARD_VARIATION_MIN,
+    to_epoch_ms,
 )
 from api_gateway.turbines_analysis.helpers.farm_dashboard_helpers import (
     aggregate_values,
@@ -66,7 +67,9 @@ def _pick_latest_computations(
             if tid not in selected_latest_by_turbine:
                 selected_latest_by_turbine[tid] = comp
             continue
-        month_ms = month_start_ms_from_ms(int(comp.start_time))
+        # Normalize timestamp to milliseconds before calculating month start
+        comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+        month_ms = month_start_ms_from_ms(int(comp_start_ms))
         k = (tid, month_ms)
         if k not in selected_by_key:
             selected_by_key[k] = comp
@@ -143,8 +146,9 @@ class FarmDashboardMonthlyAnalysisAPIView(APIView):
             turbine_ids_with_comp = {int(c.turbine_id) for c in selected_comps}
             turbines_for_output = [t for t in turbines if int(t.id) in turbine_ids_with_comp]
 
-            latest_start_time = min(int(c.start_time) for c in selected_comps)
-            latest_end_time = max(int(c.end_time) for c in selected_comps)
+            # Normalize timestamps from DB to milliseconds
+            latest_start_time = min(to_epoch_ms(c.start_time) or c.start_time for c in selected_comps)
+            latest_end_time = max(to_epoch_ms(c.end_time) or c.end_time for c in selected_comps)
 
             # ---- Monthly production (bulk aggregation from DailyProduction) ----
             dp_qs = DailyProduction.objects.filter(computation__in=selected_comps)
@@ -205,7 +209,9 @@ class FarmDashboardMonthlyAnalysisAPIView(APIView):
                     if not ind:
                         continue
                     tid = int(comp.turbine_id)
-                    month_ms = month_start_ms_from_ms(int(comp.start_time))
+                    # Normalize timestamp to milliseconds before calculating month start
+                    comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                    month_ms = month_start_ms_from_ms(int(comp_start_ms))
                     rec = indicators_by_turbine_month.setdefault(tid, {}).setdefault(month_ms, {})
                     for key in indicator_keys:
                         if key == "DailyProduction":
@@ -298,8 +304,8 @@ class FarmDashboardMonthlyAnalysisAPIView(APIView):
             result: Dict[str, Any] = {
                 "farm_id": farm.id,
                 "farm_name": farm.name,
-                "start_time": latest_start_time if latest_start_time is not None else start_time,
-                "end_time": latest_end_time if latest_end_time is not None else end_time,
+                "start_time": to_epoch_ms(latest_start_time) if latest_start_time is not None else (to_epoch_ms(start_time) if start_time is not None else None),
+                "end_time": to_epoch_ms(latest_end_time) if latest_end_time is not None else (to_epoch_ms(end_time) if end_time is not None else None),
                 "variation": variation,
                 "series": {
                     "monthly_production": monthly_production,
@@ -378,8 +384,9 @@ class TurbineDashboardMonthlyAnalysisAPIView(APIView):
             if not selected_comps:
                 return error_response("No computation data found", "NO_RESULT_FOUND", status.HTTP_404_NOT_FOUND)
 
-            latest_start_time = min(int(c.start_time) for c in selected_comps)
-            latest_end_time = max(int(c.end_time) for c in selected_comps)
+            # Normalize timestamps from DB to milliseconds
+            latest_start_time = min(to_epoch_ms(c.start_time) or c.start_time for c in selected_comps)
+            latest_end_time = max(to_epoch_ms(c.end_time) or c.end_time for c in selected_comps)
 
             # Monthly production for this turbine
             dp_qs = DailyProduction.objects.filter(computation__in=selected_comps)
@@ -470,8 +477,8 @@ class TurbineDashboardMonthlyAnalysisAPIView(APIView):
                 "turbine_name": turbine.name,
                 "farm_id": turbine.farm.id if turbine.farm else None,
                 "farm_name": turbine.farm.name if turbine.farm else None,
-                "start_time": latest_start_time if latest_start_time is not None else start_time,
-                "end_time": latest_end_time if latest_end_time is not None else end_time,
+                "start_time": to_epoch_ms(latest_start_time) if latest_start_time is not None else (to_epoch_ms(start_time) if start_time is not None else None),
+                "end_time": to_epoch_ms(latest_end_time) if latest_end_time is not None else (to_epoch_ms(end_time) if end_time is not None else None),
                 "variation": variation,
                 "series": {
                     "monthly_production": monthly_production,

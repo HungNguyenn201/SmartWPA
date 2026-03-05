@@ -170,17 +170,23 @@ class WindSpeedAnalysisAPIView(APIView):
             if not computation:
                 return error_response("No classification computation found for this turbine", "NO_COMPUTATION", status.HTTP_404_NOT_FOUND)
             
+            from api_gateway.turbines_analysis.helpers._header import to_epoch_ms
+            
             if not start_time:
-                start_time = computation.start_time
+                start_time = to_epoch_ms(computation.start_time) or computation.start_time
             if not end_time:
-                end_time = computation.end_time
+                end_time = to_epoch_ms(computation.end_time) or computation.end_time
             
             if not start_time or not end_time:
                 return error_response("Invalid time range: start_time and end_time must be provided", "INVALID_TIME_RANGE", status.HTTP_400_BAD_REQUEST)
             
+            # Normalize computation timestamps for comparison
+            comp_start_ms = to_epoch_ms(computation.start_time) or computation.start_time
+            comp_end_ms = to_epoch_ms(computation.end_time) or computation.end_time
+            
             computation_matches_range = (
-                computation.start_time == start_time and 
-                computation.end_time == end_time
+                comp_start_ms == start_time and 
+                comp_end_ms == end_time
             )
             
             if computation_matches_range:
@@ -253,13 +259,17 @@ class WindSpeedAnalysisAPIView(APIView):
                 logger.error(f"Error calculating wind distribution for turbine {turbine.id}, mode={mode}, time_type={time_type}")
                 return error_response("Error calculating distribution", "CALCULATION_ERROR", status.HTTP_500_INTERNAL_SERVER_ERROR)
             
+            # Normalize timestamps to milliseconds before returning
+            normalized_start_time = to_epoch_ms(computation.start_time) if computation.start_time else None
+            normalized_end_time = to_epoch_ms(computation.end_time) if computation.end_time else None
+            
             distribution_result.update({
                 "turbine_id": turbine.id,
                 "turbine_name": turbine.name,
                 "farm_name": turbine.farm.name if turbine.farm else None,
                 "farm_id": turbine.farm.id if turbine.farm else None,
-                "start_time": computation.start_time,
-                "end_time": computation.end_time,
+                "start_time": normalized_start_time,
+                "end_time": normalized_end_time,
                 "mode": mode,
                 "time_type": time_type
             })

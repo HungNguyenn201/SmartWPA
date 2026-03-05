@@ -12,10 +12,12 @@ import concurrent.futures
 import os
 
 def start_time(data: pd.DataFrame) -> int:
-    return data.iloc[0].name.timestamp()
+    """Return start time in milliseconds (epoch milliseconds)."""
+    return int(data.iloc[0].name.timestamp() * 1000)
 
 def end_time(data: pd.DataFrame) -> int:
-    return data.iloc[-1].name.timestamp()
+    """Return end time in milliseconds (epoch milliseconds)."""
+    return int(data.iloc[-1].name.timestamp() * 1000)
 
 def process(data: pd.DataFrame, constants: dict) -> dict:
     obj = {}
