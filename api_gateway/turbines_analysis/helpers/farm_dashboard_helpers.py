@@ -161,6 +161,43 @@ def month_start_ms_from_ms(ts_ms: int) -> int:
     return month_start_ms_from_datetime(dt)
 
 
+def get_months_in_range(start_ms: int, end_ms: int) -> List[int]:
+    """Return list of month_start_ms timestamps for all months covered by the time range.
+    
+    Args:
+        start_ms: Start timestamp in milliseconds
+        end_ms: End timestamp in milliseconds
+    
+    Returns:
+        List of month_start_ms values (in milliseconds) for all months that the range covers.
+        Includes the month containing start_ms and the month containing end_ms.
+    """
+    # Normalize timestamps to milliseconds
+    start_ms = to_epoch_ms(start_ms) or start_ms
+    end_ms = to_epoch_ms(end_ms) or end_ms
+    
+    if start_ms > end_ms:
+        return []
+    
+    # Get the month start for the start timestamp
+    start_dt = datetime.fromtimestamp(int(start_ms) / 1000.0, tz=timezone.utc)
+    end_dt = datetime.fromtimestamp(int(end_ms) / 1000.0, tz=timezone.utc)
+    
+    months: List[int] = []
+    current = datetime(start_dt.year, start_dt.month, 1, tzinfo=timezone.utc)
+    end_month = datetime(end_dt.year, end_dt.month, 1, tzinfo=timezone.utc)
+    
+    while current <= end_month:
+        months.append(int(current.timestamp() * 1000))
+        # Move to next month
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+    
+    return months
+
+
 def aggregate_values(values: Iterable[Optional[float]], mode: str) -> Optional[float]:
     """Aggregate numeric values using mode in ('sum','avg'). Ignore None."""
     vv = [v for v in values if v is not None]

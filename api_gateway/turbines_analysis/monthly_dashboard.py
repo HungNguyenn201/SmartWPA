@@ -23,6 +23,7 @@ from api_gateway.turbines_analysis.helpers._header import (
 from api_gateway.turbines_analysis.helpers.farm_dashboard_helpers import (
     aggregate_values,
     get_indicator_value,
+    get_months_in_range,
     indicator_agg_mode,
     month_start_ms_from_datetime,
     month_start_ms_from_ms,
@@ -202,38 +203,118 @@ class FarmDashboardMonthlyAnalysisAPIView(APIView):
                 })
 
             # ---- Monthly indicators (selected) ----
-            indicators_by_turbine_month: Dict[int, Dict[int, Dict[str, Optional[float]]]] = {}
-            if indicator_keys:
-                for comp in selected_comps:
-                    ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
-                    if not ind:
-                        continue
-                    tid = int(comp.turbine_id)
-                    # Normalize timestamp to milliseconds before calculating month start
-                    comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
-                    month_ms = month_start_ms_from_ms(int(comp_start_ms))
-                    rec = indicators_by_turbine_month.setdefault(tid, {}).setdefault(month_ms, {})
-                    for key in indicator_keys:
-                        if key == "DailyProduction":
-                            continue
-                        rec[key] = get_indicator_value(ind, key)
-
             monthly_indicators_series: Dict[str, List[Dict[str, Any]]] = {}
             if indicator_keys:
-                months_all = sorted({m for tid in indicators_by_turbine_month for m in indicators_by_turbine_month[tid]})
+                # Get RatedPower from any computation for CapacityFactor calculation
+                rated_power = None
+                for comp in selected_comps:
+                    ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                    if ind and ind.rated_power:
+                        rated_power = float(ind.rated_power)
+                        break
+                
+                # Calculate indicators from monthly_production
                 for key in indicator_keys:
                     if key == "DailyProduction":
                         monthly_indicators_series[key] = [
                             {"month_start_ms": int(ms), "value": float(entry["production"])}
                             for ms, entry in sorted(prod_acc.items(), key=lambda kv: kv[0])
                         ]
-                        continue
-                    mode = indicator_agg_mode(key)
-                    rows: List[Dict[str, Any]] = []
-                    for m in months_all:
-                        vals = [indicators_by_turbine_month.get(tid, {}).get(m, {}).get(key) for tid in indicators_by_turbine_month]
-                        rows.append({"month_start_ms": int(m), "value": aggregate_values(vals, mode)})
-                    monthly_indicators_series[key] = rows
+                    elif key == "RealEnergy":
+                        monthly_indicators_series[key] = [
+                            {"month_start_ms": int(ms), "value": float(entry["production"])}
+                            for ms, entry in sorted(prod_acc.items(), key=lambda kv: kv[0])
+                        ]
+                    elif key == "ReachableEnergy":
+                        monthly_indicators_series[key] = [
+                            {"month_start_ms": int(ms), "value": float(entry["reachable"]) if entry["reachable"] is not None else None}
+                            for ms, entry in sorted(prod_acc.items(), key=lambda kv: kv[0])
+                        ]
+                    elif key == "LossEnergy":
+                        monthly_indicators_series[key] = [
+                            {
+                                "month_start_ms": int(ms),
+                                "value": float(max(0.0, entry["reachable"] - entry["production"])) if entry.get("reachable") is not None else None
+                            }
+                            for ms, entry in sorted(prod_acc.items(), key=lambda kv: kv[0])
+                        ]
+                    elif key == "LossPercent":
+                        monthly_indicators_series[key] = []
+                        for ms, entry in sorted(prod_acc.items(), key=lambda kv: kv[0]):
+                            reachable = entry.get("reachable")
+                            production = entry["production"]
+                            if reachable is not None and reachable > 0:
+                                loss_energy = max(0.0, reachable - production)
+                                loss_percent = loss_energy / reachable
+                            else:
+                                loss_percent = 0.0
+                            monthly_indicators_series[key].append({
+                                "month_start_ms": int(ms),
+                                "value": float(loss_percent)
+                            })
+                    elif key == "CapacityFactor":
+                        if rated_power:
+                            # Calculate CapacityFactor per month: CF = RealEnergy / (P_rated * hours_in_month)
+                            monthly_indicators_series[key] = []
+                            for ms, entry in sorted(prod_acc.items(), key=lambda kv: kv[0]):
+                                # Calculate hours in month (theoretical)
+                                month_dt = pd.to_datetime(ms, unit="ms", utc=True)
+                                days_in_month = month_dt.days_in_month
+                                hours_in_month = days_in_month * 24.0
+                                real_energy = entry["production"]
+                                if rated_power > 0 and hours_in_month > 0:
+                                    cf = real_energy / (rated_power * hours_in_month)
+                                else:
+                                    cf = None
+                                monthly_indicators_series[key].append({
+                                    "month_start_ms": int(ms),
+                                    "value": float(cf) if cf is not None else None
+                                })
+                        else:
+                            # Fallback to IndicatorData if no rated_power
+                            indicators_by_turbine_month: Dict[int, Dict[int, Dict[str, Optional[float]]]] = {}
+                            for comp in selected_comps:
+                                ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                                if not ind:
+                                    continue
+                                tid = int(comp.turbine_id)
+                                # Only assign to the month of start_time (not all months in range)
+                                comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                                month_ms = month_start_ms_from_ms(int(comp_start_ms))
+                                rec = indicators_by_turbine_month.setdefault(tid, {}).setdefault(month_ms, {})
+                                rec[key] = get_indicator_value(ind, key)
+                            
+                            # Aggregate across turbines
+                            months_all = sorted({m for tid in indicators_by_turbine_month for m in indicators_by_turbine_month[tid]})
+                            mode = indicator_agg_mode(key)
+                            rows: List[Dict[str, Any]] = []
+                            for m in months_all:
+                                vals = [indicators_by_turbine_month.get(tid, {}).get(m, {}).get(key) for tid in indicators_by_turbine_month]
+                                rows.append({"month_start_ms": int(m), "value": aggregate_values(vals, mode)})
+                            monthly_indicators_series[key] = rows
+                    else:
+                        # Other indicators (AverageWindSpeed, TBA, PBA, MTBF, MTTR, MTTF, FailureCount, etc.)
+                        # Use IndicatorData but only assign to start_time month
+                        indicators_by_turbine_month: Dict[int, Dict[int, Dict[str, Optional[float]]]] = {}
+                        for comp in selected_comps:
+                            ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                            if not ind:
+                                continue
+                            tid = int(comp.turbine_id)
+                            # Only assign to the month of start_time (not all months in range)
+                            comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                            month_ms = month_start_ms_from_ms(int(comp_start_ms))
+                            rec = indicators_by_turbine_month.setdefault(tid, {}).setdefault(month_ms, {})
+                            rec[key] = get_indicator_value(ind, key)
+                        
+                        # Aggregate across turbines
+                        months_all = sorted({m for tid in indicators_by_turbine_month for m in indicators_by_turbine_month[tid]})
+                        mode = indicator_agg_mode(key)
+                        rows: List[Dict[str, Any]] = []
+                        for m in months_all:
+                            vals = [indicators_by_turbine_month.get(tid, {}).get(m, {}).get(key) for tid in indicators_by_turbine_month]
+                            rows.append({"month_start_ms": int(m), "value": aggregate_values(vals, mode)})
+                        monthly_indicators_series[key] = rows
 
             # ---- Monthly performance (compute-on-the-fly from timeseries) ----
             by_turbine: List[Dict[str, Any]] = []
@@ -279,8 +360,34 @@ class FarmDashboardMonthlyAnalysisAPIView(APIView):
                     "monthly_performance": turbine_perf_normalized,
                 }
                 if indicator_keys:
+                    # Get RatedPower for CapacityFactor calculation
+                    rated_power = None
+                    for comp in selected_comps:
+                        if int(comp.turbine_id) == int(turbine.id):
+                            ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                            if ind and ind.rated_power:
+                                rated_power = float(ind.rated_power)
+                                break
+                    
+                    # Build indicators_by_turbine_month for non-production-based indicators
+                    indicators_by_turbine_month: Dict[int, Dict[int, Dict[str, Optional[float]]]] = {}
+                    for comp in selected_comps:
+                        if int(comp.turbine_id) != int(turbine.id):
+                            continue
+                        ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                        if not ind:
+                            continue
+                        tid = int(comp.turbine_id)
+                        # Only assign to the month of start_time (not all months in range)
+                        comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                        month_ms = month_start_ms_from_ms(int(comp_start_ms))
+                        rec = indicators_by_turbine_month.setdefault(tid, {}).setdefault(month_ms, {})
+                        for key in indicator_keys:
+                            if key not in {"DailyProduction", "RealEnergy", "ReachableEnergy", "LossEnergy", "LossPercent", "CapacityFactor"}:
+                                rec[key] = get_indicator_value(ind, key)
+                    
                     per_month = indicators_by_turbine_month.get(int(turbine.id), {})
-                    months_sorted = sorted(per_month.keys())
+                    months_sorted = sorted(set(list(per_month.keys()) + list(turbine_month_prod.keys())))
                     turbine_monthly_indicators: Dict[str, List[Dict[str, Any]]] = {}
                     for key in indicator_keys:
                         if key == "DailyProduction":
@@ -288,7 +395,63 @@ class FarmDashboardMonthlyAnalysisAPIView(APIView):
                                 {"month_start_ms": int(ms), "value": float(entry["production"])}
                                 for ms, entry in sorted(turbine_month_prod.items(), key=lambda kv: kv[0])
                             ]
+                        elif key == "RealEnergy":
+                            turbine_monthly_indicators[key] = [
+                                {"month_start_ms": int(ms), "value": float(entry["production"])}
+                                for ms, entry in sorted(turbine_month_prod.items(), key=lambda kv: kv[0])
+                            ]
+                        elif key == "ReachableEnergy":
+                            turbine_monthly_indicators[key] = [
+                                {"month_start_ms": int(ms), "value": float(entry["reachable"]) if entry["reachable"] is not None else None}
+                                for ms, entry in sorted(turbine_month_prod.items(), key=lambda kv: kv[0])
+                            ]
+                        elif key == "LossEnergy":
+                            turbine_monthly_indicators[key] = [
+                                {
+                                    "month_start_ms": int(ms),
+                                    "value": float(max(0.0, entry["reachable"] - entry["production"])) if entry.get("reachable") is not None else None
+                                }
+                                for ms, entry in sorted(turbine_month_prod.items(), key=lambda kv: kv[0])
+                            ]
+                        elif key == "LossPercent":
+                            turbine_monthly_indicators[key] = []
+                            for ms, entry in sorted(turbine_month_prod.items(), key=lambda kv: kv[0]):
+                                reachable = entry.get("reachable")
+                                production = entry["production"]
+                                if reachable is not None and reachable > 0:
+                                    loss_energy = max(0.0, reachable - production)
+                                    loss_percent = loss_energy / reachable
+                                else:
+                                    loss_percent = 0.0
+                                turbine_monthly_indicators[key].append({
+                                    "month_start_ms": int(ms),
+                                    "value": float(loss_percent)
+                                })
+                        elif key == "CapacityFactor":
+                            if rated_power:
+                                turbine_monthly_indicators[key] = []
+                                for ms, entry in sorted(turbine_month_prod.items(), key=lambda kv: kv[0]):
+                                    # Calculate hours in month (theoretical)
+                                    month_dt = pd.to_datetime(ms, unit="ms", utc=True)
+                                    days_in_month = month_dt.days_in_month
+                                    hours_in_month = days_in_month * 24.0
+                                    real_energy = entry["production"]
+                                    if rated_power > 0 and hours_in_month > 0:
+                                        cf = real_energy / (rated_power * hours_in_month)
+                                    else:
+                                        cf = None
+                                    turbine_monthly_indicators[key].append({
+                                        "month_start_ms": int(ms),
+                                        "value": float(cf) if cf is not None else None
+                                    })
+                            else:
+                                # Fallback to IndicatorData
+                                turbine_monthly_indicators[key] = [
+                                    {"month_start_ms": int(m), "value": per_month.get(m, {}).get(key)}
+                                    for m in months_sorted
+                                ]
                         else:
+                            # Other indicators from IndicatorData
                             turbine_monthly_indicators[key] = [
                                 {"month_start_ms": int(m), "value": per_month.get(m, {}).get(key)}
                                 for m in months_sorted
@@ -431,26 +594,106 @@ class TurbineDashboardMonthlyAnalysisAPIView(APIView):
             # Monthly indicators
             monthly_indicators_series: Dict[str, List[Dict[str, Any]]] = {}
             if indicator_keys:
-                per_month: Dict[int, Dict[str, Optional[float]]] = {}
+                # Get RatedPower from any computation for CapacityFactor calculation
+                rated_power = None
                 for comp in selected_comps:
                     ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
-                    if not ind:
-                        continue
-                    m = month_start_ms_from_ms(int(comp.start_time))
-                    rec = per_month.setdefault(m, {})
-                    for key in indicator_keys:
-                        if key == "DailyProduction":
-                            continue
-                        rec[key] = get_indicator_value(ind, key)
-
-                months_sorted = sorted(set(list(per_month.keys()) + list(prod_map.keys())))
+                    if ind and ind.rated_power:
+                        rated_power = float(ind.rated_power)
+                        break
+                
+                # Calculate indicators from monthly_production
                 for key in indicator_keys:
                     if key == "DailyProduction":
                         monthly_indicators_series[key] = [
                             {"month_start_ms": int(ms), "value": float(prod_map[ms]["production"])}
                             for ms in sorted(prod_map.keys())
                         ]
+                    elif key == "RealEnergy":
+                        monthly_indicators_series[key] = [
+                            {"month_start_ms": int(ms), "value": float(prod_map[ms]["production"])}
+                            for ms in sorted(prod_map.keys())
+                        ]
+                    elif key == "ReachableEnergy":
+                        monthly_indicators_series[key] = [
+                            {"month_start_ms": int(ms), "value": float(prod_map[ms]["reachable"]) if prod_map[ms]["reachable"] is not None else None}
+                            for ms in sorted(prod_map.keys())
+                        ]
+                    elif key == "LossEnergy":
+                        monthly_indicators_series[key] = [
+                            {
+                                "month_start_ms": int(ms),
+                                "value": float(max(0.0, prod_map[ms]["reachable"] - prod_map[ms]["production"])) if prod_map[ms].get("reachable") is not None else None
+                            }
+                            for ms in sorted(prod_map.keys())
+                        ]
+                    elif key == "LossPercent":
+                        monthly_indicators_series[key] = []
+                        for ms in sorted(prod_map.keys()):
+                            entry = prod_map[ms]
+                            reachable = entry.get("reachable")
+                            production = entry["production"]
+                            if reachable is not None and reachable > 0:
+                                loss_energy = max(0.0, reachable - production)
+                                loss_percent = loss_energy / reachable
+                            else:
+                                loss_percent = 0.0
+                            monthly_indicators_series[key].append({
+                                "month_start_ms": int(ms),
+                                "value": float(loss_percent)
+                            })
+                    elif key == "CapacityFactor":
+                        if rated_power:
+                            # Calculate CapacityFactor per month: CF = RealEnergy / (P_rated * hours_in_month)
+                            monthly_indicators_series[key] = []
+                            for ms in sorted(prod_map.keys()):
+                                entry = prod_map[ms]
+                                # Calculate hours in month (theoretical)
+                                month_dt = pd.to_datetime(ms, unit="ms", utc=True)
+                                days_in_month = month_dt.days_in_month
+                                hours_in_month = days_in_month * 24.0
+                                real_energy = entry["production"]
+                                if rated_power > 0 and hours_in_month > 0:
+                                    cf = real_energy / (rated_power * hours_in_month)
+                                else:
+                                    cf = None
+                                monthly_indicators_series[key].append({
+                                    "month_start_ms": int(ms),
+                                    "value": float(cf) if cf is not None else None
+                                })
+                        else:
+                            # Fallback to IndicatorData if no rated_power
+                            per_month: Dict[int, Dict[str, Optional[float]]] = {}
+                            for comp in selected_comps:
+                                ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                                if not ind:
+                                    continue
+                                # Only assign to the month of start_time (not all months in range)
+                                comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                                month_ms = month_start_ms_from_ms(int(comp_start_ms))
+                                rec = per_month.setdefault(month_ms, {})
+                                rec[key] = get_indicator_value(ind, key)
+                            
+                            months_sorted = sorted(set(list(per_month.keys()) + list(prod_map.keys())))
+                            monthly_indicators_series[key] = [
+                                {"month_start_ms": int(m), "value": per_month.get(m, {}).get(key)}
+                                for m in months_sorted
+                            ]
                     else:
+                        # Other indicators (AverageWindSpeed, TBA, PBA, MTBF, MTTR, MTTF, FailureCount, etc.)
+                        # Use IndicatorData but only assign to start_time month
+                        per_month: Dict[int, Dict[str, Optional[float]]] = {}
+                        for comp in selected_comps:
+                            ind = comp.indicator_data.first() if hasattr(comp, "indicator_data") else None
+                            if not ind:
+                                continue
+                            # Only assign to the month of start_time (not all months in range)
+                            comp_start_ms = to_epoch_ms(comp.start_time) or comp.start_time
+                            month_ms = month_start_ms_from_ms(int(comp_start_ms))
+                            rec = per_month.setdefault(month_ms, {})
+                            rec[key] = get_indicator_value(ind, key)
+                        
+                        months_sorted = sorted(set(list(per_month.keys()) + list(prod_map.keys())))
                         monthly_indicators_series[key] = [
                             {"month_start_ms": int(m), "value": per_month.get(m, {}).get(key)}
                             for m in months_sorted
