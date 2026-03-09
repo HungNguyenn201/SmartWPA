@@ -470,7 +470,13 @@ def get_temporal_group_series(
     if group_by == "yearly":
         return ts_dt.loc[idx].dt.strftime("%Y")
     if group_by == "seasonally":
-        return ts_dt.loc[idx].dt.to_period("Q").astype(str)
+        # Convert to naive datetime to avoid timezone warning when using to_period
+        ts_selected = ts_dt.loc[idx]
+        if ts_selected.dt.tz is not None:
+            ts_naive = ts_selected.dt.tz_localize(None)
+        else:
+            ts_naive = ts_selected
+        return ts_naive.dt.to_period("Q").astype(str)
     if group_by == "time_profile_monthly":
         return ts_dt.loc[idx].dt.strftime("%b")
     if group_by == "time_profile_seasonally":

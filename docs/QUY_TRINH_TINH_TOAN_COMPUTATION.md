@@ -248,17 +248,17 @@ Các trạng thái **không** lấy trực tiếp từ status code của turbine
 - **IEC 61400-12-1:2022** (Clause 8.4 Data rejection): loại bỏ dữ liệu khi turbine không vận hành bình thường, lỗi đo, ngoài sector, v.v. SmartWPA mở rộng thành **nhiều nhãn** để phân tích loss theo từng nguyên nhân.
 - **IEC TS 61400-26** (availability/reliability): khái niệm UP/DOWN/OTHER; SmartWPA map UP = NORMAL + OVERPRODUCTION, DOWN = STOP, OTHER = các trạng thái còn lại (xem mục 12).
 
-| Trạng thái | Định nghĩa trong SmartWPA | Cơ sở / Ghi chú |
-|------------|---------------------------|------------------|
-| **NORMAL** | Điểm nằm trong “healthy band” quanh đường cong công suất ước lượng (spline median). | Band động từ dữ liệu, không dùng manufacturer curve. |
-| **OVERPRODUCTION** | Công suất đo > biên trên của healthy band. | Hiếm; có thể do đo đạc hoặc điều kiện đặc biệt. |
-| **UNDERPRODUCTION** | Công suất đo < biên dưới của healthy band. | Mất hiệu suất so với curve “khỏe”. |
-| **STOP** | ACTIVE_POWER ≤ 0 (theo rule). Cuối cùng mọi điểm P ≤ 0 đều bị gán STOP. | Tương ứng “không phát điện” trong IEC 8.4. |
-| **PARTIAL_STOP** | Các đoạn liền kề trước/sau một chuỗi STOP dài (≥ 240 phút), nếu đoạn đó chỉ gồm NORMAL/UNDER/OVER. | Heuristic để đánh dấu vùng “ảnh hưởng” bởi dừng máy. |
-| **CURTAILMENT** | UNDERPRODUCTION đồng thời công suất ổn định (rolling std 30 phút < 100) và duration ≥ 30 phút. | Giả định curtailment tạo plateau/setpoint; 30 phút tránh nhiễu ngắn. |
-| **PARTIAL_CURTAILMENT** | Đoạn “normal” (không phải CURTAILMENT) nằm sát trước/sau một nhóm CURTAILMENT, đủ dài (≥ 40 phút). | Vùng có thể bị ảnh hưởng bởi giới hạn. |
-| **MEASUREMENT_ERROR** | Dữ liệu ngoài khoảng hợp lệ, NaN, hoặc vi phạm rule vật lý (xem 5.1). | Tương ứng “failure or degradation of measurement equipment” (IEC 8.4d). |
-| **UNKNOWN** | Ban đầu gán cho điểm chưa bị loại; sau các bước B–G được chuyển thành NORMAL/UNDER/OVER/CURTAILMENT/… | Trạng thái trung gian trong pipeline. |
+| Trạng thái | Định nghĩa trong SmartWPA | Cơ sở / Ghi chú | Mapping IEC |
+|------------|---------------------------|------------------|--------------|
+| **NORMAL** | Điểm nằm trong "healthy band" quanh đường cong công suất ước lượng (spline median). Band được tính adaptive từ dữ liệu thực tế của turbine tại site. | Band động từ dữ liệu, không dùng manufacturer curve (xem 5.8.4). Điểm NORMAL được dùng để tính power curve cuối cùng. | IEC TS 61400-26: **UP** |
+| **OVERPRODUCTION** | Công suất đo > biên trên của healthy band. | Hiếm; có thể do đo đạc hoặc điều kiện đặc biệt (extreme wind conditions, measurement error). Không tính vào loss analysis. | IEC TS 61400-26: **UP** |
+| **UNDERPRODUCTION** | Công suất đo < biên dưới của healthy band (nhưng không phải CURTAILMENT). | Mất hiệu suất so với curve "khỏe". Có thể do: aging, icing, yaw misalignment, partial fault, etc. Tính vào loss analysis. | IEC TS 61400-26: **OTHER** |
+| **STOP** | ACTIVE_POWER ≤ 0 (theo rule). Cuối cùng mọi điểm P ≤ 0 đều bị gán STOP. | Tương ứng "turbine not operating" trong IEC 8.4. Tính vào downtime, MTTR/MTTF. | IEC 8.4: **Reject** (turbine not operating)<br>IEC TS 61400-26: **DOWN** |
+| **PARTIAL_STOP** | Các đoạn liền kề trước/sau một chuỗi STOP dài (≥ 240 phút), nếu đoạn đó chỉ gồm NORMAL/UNDER/OVER và có độ dài ≥ 40 phút. | Heuristic để đánh dấu vùng "ảnh hưởng" bởi dừng máy (cooling, startup sequence, etc.). Xem 5.8.6. | IEC TS 61400-26: **OTHER** |
+| **CURTAILMENT** | UNDERPRODUCTION đồng thời công suất ổn định (rolling std 30 phút < 100 kW) và duration ≥ 30 phút. | Giả định curtailment tạo plateau/setpoint (power constant). Phân biệt với underproduction do fault (có variation). Xem 5.8.5. | IEC TS 61400-26: **OTHER** |
+| **PARTIAL_CURTAILMENT** | Đoạn "normal" (không phải CURTAILMENT) nằm sát trước/sau một nhóm CURTAILMENT, đủ dài (≥ 40 phút). | Vùng transition/ramp-up sau curtailment. Xem 5.8.6. | IEC TS 61400-26: **OTHER** |
+| **MEASUREMENT_ERROR** | Dữ liệu ngoài khoảng hợp lệ, NaN, hoặc vi phạm rule vật lý (xem 5.1). Bao gồm: V ngoài [0,32] m/s, P ngoài [-0.05·P_rated, 1.1·P_rated], NaN, V ngoài [V_cutin-1, V_cutout+1] khi P>0, \|ΔV\|>10 m/s, wind "đứng yên" ≥1h. | Tương ứng "failure or degradation of measurement equipment" (IEC 8.4d). Loại bỏ khỏi power curve và loss analysis. | IEC 8.4d: **Reject** (measurement equipment failure)<br>IEC TS 61400-26: **OTHER** |
+| **UNKNOWN** | Ban đầu gán cho điểm chưa bị loại ở Bước A; sau các bước B–G được chuyển thành NORMAL/UNDER/OVER/CURTAILMENT/… | Trạng thái trung gian trong pipeline. Không nên còn UNKNOWN sau khi hoàn thành classification. | IEC TS 61400-26: **OTHER** |
 
 **Hằng số thời gian (code: `classifier.py`):**
 - `TIME_RESOLUTION = 10` phút.
@@ -326,7 +326,243 @@ Nếu đoạn trước/sau không chứa `CURTAILMENT` thì gán `PARTIAL_CURTAI
 Tìm các chuỗi `STOP` liên tục có duration >= 240 phút.  
 Sau đó, các đoạn trước/sau gần nhất (>= 40 phút) nếu chỉ gồm `NORMAL/UNDERPRODUCTION/OVERPRODUCTION` thì gán `PARTIAL_STOP`.
 
-Cuối cùng, mọi điểm có `ACTIVE_POWER <= 0` được “force” về `STOP`.
+Cuối cùng, mọi điểm có `ACTIVE_POWER <= 0` được "force" về `STOP`.
+
+---
+
+### 5.8 Đối chiếu với IEC 61400-12-1:2022 và lý do lựa chọn
+
+#### 5.8.1 Data rejection (Bước A) - So sánh với IEC 8.4
+
+**IEC 61400-12-1:2022 Clause 8.4** liệt kê các điều kiện loại bỏ dữ liệu:
+- Turbine không vận hành bình thường (not in normal operation)
+- Fault conditions
+- Manual shutdown
+- Test/maintenance periods
+- Failure or degradation of measurement equipment
+- Wind direction ngoài measurement sector
+- Data outside valid measurement range
+
+**SmartWPA approach** (`filter_error` function):
+- **Khác biệt chính**: SmartWPA **không dùng status code từ turbine SCADA** mà **suy ra từ tín hiệu SCADA** (wind speed, active power). Lý do:
+  1. Status code có thể không đáng tin cậy hoặc không có sẵn trong dữ liệu lịch sử
+  2. Phương pháp dựa trên SCADA signals cho phép phân tích dữ liệu cũ mà không cần status code
+  3. Tự động phát hiện lỗi đo từ dữ liệu vật lý (physical constraints)
+
+**Các tiêu chí cụ thể và lý do**:
+
+| Tiêu chí | Giá trị | Lý do lựa chọn | So với IEC |
+|----------|---------|----------------|------------|
+| Wind speed range | [0, 32] m/s | 32 m/s là giới hạn hợp lý cho hầu hết turbine (cut-out thường 20-25 m/s, thêm margin cho extreme events). Giá trị < 0 là vật lý không hợp lệ. | **Phù hợp**: IEC yêu cầu loại dữ liệu ngoài range hợp lệ, nhưng không chỉ định cụ thể 32 m/s. Giá trị này dựa trên kinh nghiệm thực tế. |
+| Power range | [-0.05·P_rated, 1.1·P_rated] | -0.05·P_rated cho phép noise/measurement error nhỏ. 1.1·P_rated cho phép overshoot tạm thời (transient) nhưng loại bỏ spike bất thường. | **Phù hợp**: IEC yêu cầu loại dữ liệu ngoài range, ngưỡng này hợp lý cho SCADA data. |
+| NaN detection | WIND_SPEED hoặc ACTIVE_POWER = NaN | Dữ liệu thiếu không thể dùng cho phân tích. | **Đúng**: Tương ứng IEC 8.4d (failure of measurement equipment). |
+| V ngoài [V_cutin-1, V_cutout+1] khi P>0 | Margin ±1 m/s | Nếu có power nhưng wind speed ngoài operating range (có margin), có thể là lỗi đo hoặc dữ liệu không hợp lệ. | **Mở rộng hợp lý**: IEC đề cập cut-out hysteresis nhưng không chỉ định margin cụ thể. Margin 1 m/s tránh false positive do uncertainty trong ước lượng V_cutin/V_cutout. |
+| |ΔV| > 10 m/s | Wind speed không thể thay đổi đột ngột > 10 m/s trong 10 phút (giới hạn vật lý). | **Heuristic hợp lý**: IEC không chỉ định ngưỡng này, nhưng dựa trên kiến thức vật lý về turbulence và wind speed variation. 10 m/s là ngưỡng conservative để phát hiện spike/sensor error. |
+| Wind speed "đứng yên" ≥ 1 giờ | 6 điểm liên tiếp (10 phút/điểm) | Anemometer bị "stuck" hoặc dead value. Trong điều kiện thực tế, wind speed luôn có variation. | **Heuristic hợp lý**: IEC không chỉ định cụ thể, nhưng đây là dấu hiệu rõ ràng của sensor failure. 1 giờ đủ dài để loại bỏ false positive (có thể có gió yếu nhưng vẫn có variation nhỏ). |
+
+**Kết luận về Bước A**:
+- ✅ **Phù hợp với tinh thần IEC 8.4**: Loại bỏ dữ liệu không hợp lệ và lỗi đo
+- ✅ **Mở rộng hợp lý**: Dùng SCADA signals thay vì status code, phù hợp với dữ liệu lịch sử
+- ✅ **Các ngưỡng hợp lý**: Dựa trên vật lý và kinh nghiệm thực tế
+
+#### 5.8.2 Các trạng thái mở rộng - Lý do và cơ sở
+
+IEC 61400-12-1:2022 chỉ có khái niệm **accept/reject** dữ liệu. SmartWPA mở rộng thành **nhiều nhãn** để phục vụ WPA và reliability analysis.
+
+| Trạng thái | Có trong IEC? | Lý do mở rộng | Ứng dụng |
+|------------|---------------|---------------|----------|
+| **MEASUREMENT_ERROR** | ✅ Có (8.4d) | Tương ứng "failure or degradation of measurement equipment". | Loại bỏ khỏi power curve, không tính vào loss analysis. |
+| **STOP** | ✅ Có (8.4 - turbine not operating) | Tương ứng "turbine not in normal operation". | Tính loss do downtime, MTTR/MTTF cho reliability. |
+| **NORMAL** | ❌ Không | IEC chỉ có accept/reject. SmartWPA cần nhãn "normal" để phân biệt với các trạng thái khác. | Dùng để tính power curve (chỉ dùng NORMAL points), baseline cho performance analysis. |
+| **UNDERPRODUCTION** | ❌ Không | IEC không phân biệt mức độ performance. SmartWPA cần để phân tích loss do performance degradation. | Tính loss energy, phân tích nguyên nhân (aging, icing, etc.). |
+| **OVERPRODUCTION** | ❌ Không | Hiếm nhưng có thể xảy ra (measurement error, extreme conditions). | Đánh dấu để review, không tính vào loss. |
+| **CURTAILMENT** | ❌ Không | IEC không phân biệt curtailment vs. other underproduction. SmartWPA cần để phân tích loss do grid constraints. | Tính curtailment loss riêng, phân tích tác động của grid limits. |
+| **PARTIAL_CURTAILMENT** | ❌ Không | Heuristic để đánh dấu vùng transition/ramp-up sau curtailment. | Phân tích chi tiết hơn về tác động của curtailment. |
+| **PARTIAL_STOP** | ❌ Không | Heuristic để đánh dấu vùng transition/ramp-up sau stop. | Phân tích chi tiết hơn về tác động của downtime. |
+
+**Cơ sở cho mở rộng**:
+- **IEC TS 61400-26** (Availability classification): Định nghĩa UP/DOWN/OTHER states. SmartWPA mapping:
+  - UP = NORMAL + OVERPRODUCTION
+  - DOWN = STOP
+  - OTHER = UNDERPRODUCTION, CURTAILMENT, PARTIAL_*, MEASUREMENT_ERROR
+- **WPA requirements**: Cần phân tích loss theo từng nguyên nhân để tối ưu hóa performance
+- **Industry practice**: Nhiều hệ thống WPA commercial (như WindPRO, Openwind) cũng có classification tương tự
+
+**Kết luận**: Mở rộng này **hợp lý và cần thiết** cho WPA, không vi phạm IEC 61400-12-1 (vì IEC chỉ định nghĩa data rejection, không định nghĩa classification states).
+
+#### 5.8.3 DBSCAN outlier filtering - Tại sao cần thiết
+
+**IEC không có tương đương**: IEC 8.4 chỉ loại bỏ dữ liệu rõ ràng sai (out of range, NaN, etc.), không có bước lọc outlier dựa trên clustering.
+
+**Lý do SmartWPA cần DBSCAN**:
+1. **Vấn đề**: Sau Bước A, vẫn còn nhiều điểm "UNKNOWN" có thể là:
+   - Outlier do nhiễu (noise)
+   - Data từ các operating mode khác (startup, shutdown, fault recovery)
+   - Measurement errors không bị phát hiện ở Bước A
+
+2. **Tại sao không dùng phương pháp khác**:
+   - **Statistical outlier (Z-score, IQR)**: Không hiệu quả với dữ liệu 2D (wind speed, power) có phân phối không đều
+   - **Isolation Forest**: Tốn tài nguyên, không cần thiết cho dữ liệu 2D
+   - **DBSCAN**: 
+     - ✅ Phù hợp với dữ liệu 2D có cụm (clusters)
+     - ✅ Tự động xác định số cụm (không cần biết trước)
+     - ✅ Phát hiện outlier hiệu quả (điểm không thuộc cụm nào)
+     - ✅ Robust với noise
+
+3. **Tham số lựa chọn**:
+   - `min_samples=15`: Tương đương 2.5 giờ dữ liệu (15 × 10 phút). Đủ để tạo cụm đáng tin cậy, không quá lớn để bỏ sót cụm nhỏ.
+   - `eps=0.2`: Sau khi standardize (mean=0, std=1), 0.2 là khoảng cách hợp lý giữa các điểm trong cùng cụm. Được chọn dựa trên thực nghiệm.
+
+4. **Kết quả**: DBSCAN tách được "inlier cluster" (điểm healthy) khỏi outlier, giúp fit healthy curve chính xác hơn.
+
+**Kết luận**: DBSCAN là **bước cần thiết** để đảm bảo healthy curve được fit từ dữ liệu chất lượng cao, mặc dù không có trong IEC.
+
+#### 5.8.4 Healthy band approach - Tại sao không dùng manufacturer curve
+
+**IEC không có khái niệm "healthy band"**: IEC chỉ định nghĩa measured power curve (từ dữ liệu), không có khái niệm band để phân loại performance.
+
+**Lý do không dùng manufacturer curve**:
+1. **Manufacturer curve không phù hợp với site cụ thể**:
+   - Manufacturer curve được đo ở điều kiện chuẩn (standard conditions)
+   - Site thực tế có điều kiện khác (terrain, wake effects, air density, etc.)
+   - Dùng manufacturer curve sẽ tạo nhiều false positive (UNDERPRODUCTION khi thực tế là normal cho site đó)
+
+2. **Adaptive healthy band phù hợp hơn**:
+   - Band được tính từ dữ liệu thực tế của turbine tại site
+   - Phản ánh đúng performance "khỏe" của turbine tại site cụ thể
+   - Tự động điều chỉnh theo điều kiện site (không cần calibration)
+
+3. **Cách tính healthy band**:
+   - Bắt đầu từ median curve (robust hơn mean)
+   - Quét band từ 10 đến 1000 kW với step 10 kW
+   - Chọn band nơi "tốc độ tăng" điểm mới < 0.2% (stop_threshold=0.002)
+   - Lý do: Band quá nhỏ → quá strict, band quá lớn → không phân biệt được underproduction. Stop khi tốc độ tăng điểm mới chậm → đã đạt "natural boundary" của healthy operation.
+
+4. **Ưu điểm**:
+   - ✅ Tự động, không cần manual calibration
+   - ✅ Phù hợp với từng turbine/site
+   - ✅ Robust với variation tự nhiên của wind/power
+
+**Kết luận**: Healthy band approach là **lựa chọn đúng đắn** cho WPA, phù hợp hơn manufacturer curve cho phân tích performance thực tế.
+
+#### 5.8.5 Curtailment detection - Heuristic và ngưỡng
+
+**IEC không có định nghĩa curtailment**: IEC chỉ loại bỏ dữ liệu, không phân biệt curtailment vs. other underproduction.
+
+**Lý do cần phát hiện curtailment**:
+- Curtailment là loss do grid constraints (không phải lỗi turbine)
+- Cần tách riêng để phân tích: loss do turbine vs. loss do grid
+- Quan trọng cho energy forecasting và grid planning
+
+**Heuristic phát hiện curtailment**:
+1. **Điều kiện**: UNDERPRODUCTION + công suất ổn định
+   - **UNDERPRODUCTION**: Đã được xác định từ healthy band
+   - **Ổn định**: Rolling std (30 phút) < 100 kW
+     - Lý do: Curtailment tạo "plateau" (setpoint cố định), khác với underproduction do fault (có variation)
+
+2. **Duration threshold**: ≥ 30 phút
+   - Lý do: Tránh false positive từ transient ngắn
+   - 30 phút đủ dài để phân biệt curtailment (thường kéo dài) vs. transient
+
+3. **Stability threshold**: std < 100 kW
+   - Lý do: Với 10 phút resolution, std < 100 kW nghĩa là power gần như constant
+   - Ngưỡng này phù hợp với hầu hết turbine (P_rated thường 2-5 MW, variation < 100 kW là rất nhỏ)
+
+**Kết luận**: Heuristic này **hợp lý và hiệu quả** để phát hiện curtailment từ SCADA data, mặc dù không có trong IEC.
+
+#### 5.8.6 Partial states - Lý do và ứng dụng
+
+**IEC không có khái niệm partial states**: IEC chỉ có accept/reject, không có trạng thái "partial".
+
+**Lý do cần partial states**:
+1. **PARTIAL_STOP**: Đánh dấu vùng transition/ramp-up sau stop
+   - Lý do: Sau khi turbine dừng lâu (≥ 240 phút), vùng trước/sau có thể bị ảnh hưởng (cooling, startup sequence, etc.)
+   - Ứng dụng: Phân tích chi tiết hơn về tác động của downtime
+
+2. **PARTIAL_CURTAILMENT**: Đánh dấu vùng transition/ramp-up sau curtailment
+   - Lý do: Sau khi curtailment kết thúc, turbine cần thời gian để ramp-up về normal
+   - Ứng dụng: Phân tích chi tiết hơn về tác động của grid constraints
+
+**Heuristic**:
+- Tìm các "normal group" gần nhất (trước/sau) có độ dài ≥ 40 phút
+- Lý do 40 phút: Đủ dài để đảm bảo đây là "real normal operation", không phải transient ngắn
+- Chỉ gán nếu đoạn không chứa CURTAILMENT/STOP (tránh overlap)
+
+**Kết luận**: Partial states là **heuristic hợp lý** để phân tích chi tiết hơn, mặc dù không có trong IEC.
+
+---
+
+### 5.9 Các hằng số và ngưỡng - Giải thích chi tiết
+
+#### 5.9.1 Hằng số thời gian
+
+| Hằng số | Giá trị | Lý do lựa chọn | Cơ sở |
+|---------|---------|----------------|-------|
+| `TIME_RESOLUTION` | 10 phút | Resolution chuẩn của SCADA data. Đủ fine để capture dynamics, đủ coarse để giảm noise. | Industry standard (hầu hết SCADA systems dùng 10 phút). |
+| `LEAST_TIME_OF_CURTAILMENT` | 30 phút | Tối thiểu để phân biệt curtailment (kéo dài) vs. transient ngắn. | Thực nghiệm: curtailment thường kéo dài ≥ 30 phút. Transient thường < 30 phút. |
+| `LEAST_TIME_OF_STOP` | 240 phút (4 giờ) | Tối thiểu để coi là "stop event" nghiêm trọng (không phải brief shutdown). | Reliability analysis: downtime < 4 giờ thường là brief shutdown, không phải major failure. |
+| `LEAST_TIME_OF_NORMAL` | 40 phút | Tối thiểu để đảm bảo "real normal operation" (không phải transient). | Thực nghiệm: 40 phút đủ dài để loại bỏ transient, đủ ngắn để không bỏ sót normal periods. |
+
+#### 5.9.2 Ngưỡng phát hiện lỗi
+
+| Ngưỡng | Giá trị | Lý do lựa chọn | Cơ sở |
+|--------|---------|----------------|-------|
+| Wind speed range | [0, 32] m/s | 32 m/s là giới hạn hợp lý (cut-out thường 20-25 m/s + margin). | Kinh nghiệm: hầu hết turbine có cut-out < 30 m/s. 32 m/s là conservative upper bound. |
+| Power range | [-0.05·P_rated, 1.1·P_rated] | -0.05 cho phép noise nhỏ. 1.1 cho phép overshoot tạm thời. | Thực nghiệm: power có thể có noise ±5% và overshoot tạm thời đến 110%. |
+| |ΔV| threshold | 10 m/s | Wind speed không thể thay đổi > 10 m/s trong 10 phút (giới hạn vật lý). | Vật lý: turbulence và wind speed variation tự nhiên < 10 m/s trong 10 phút. |
+| Dead value detection | 1 giờ (6 điểm) | Anemometer bị stuck. Trong điều kiện thực tế, wind speed luôn có variation. | Thực nghiệm: 1 giờ đủ dài để loại bỏ false positive (có thể có gió yếu nhưng vẫn có variation nhỏ). |
+
+#### 5.9.3 Ngưỡng phân loại performance
+
+| Ngưỡng | Giá trị | Lý do lựa chọn | Cơ sở |
+|--------|---------|----------------|-------|
+| `MAX_DIFF_IN_CURTAILMENT` | 100 kW | Rolling std < 100 kW nghĩa là power gần như constant (plateau). | Thực nghiệm: với P_rated 2-5 MW, variation < 100 kW là rất nhỏ, phù hợp với curtailment setpoint. |
+| `bin_width` (Bước C) | 0.25 m/s | Fine hơn IEC 0.5 m/s để tạo curve mượt hơn cho classification. | Lý do: curve này dùng để phân loại, không phải power curve cuối cùng. 0.25 m/s cho độ phân giải tốt hơn. |
+| `step_size` (healthy band) | 10 kW | Step đủ nhỏ để tìm band chính xác, đủ lớn để không quá chậm. | Thực nghiệm: 10 kW là balance tốt giữa accuracy và performance. |
+| `stop_threshold` | 0.002 (0.2%) | Tốc độ tăng điểm mới < 0.2% → đã đạt natural boundary. | Thực nghiệm: < 0.2% nghĩa là band đã đủ lớn, tăng thêm không có ý nghĩa. |
+| `max_band` | 1000 kW | Giới hạn trên cho healthy band (tránh band quá lớn). | Thực nghiệm: band > 1000 kW không còn ý nghĩa phân biệt performance. |
+
+#### 5.9.4 Tham số DBSCAN
+
+| Tham số | Giá trị | Lý do lựa chọn | Cơ sở |
+|---------|---------|----------------|-------|
+| `min_samples` | 15 | Tương đương 2.5 giờ dữ liệu. Đủ để tạo cụm đáng tin cậy. | Thực nghiệm: 15 điểm đủ để tạo cụm, không quá lớn để bỏ sót cụm nhỏ. |
+| `eps` | 0.2 | Sau standardize, 0.2 là khoảng cách hợp lý giữa các điểm trong cùng cụm. | Thực nghiệm: được chọn dựa trên phân phối dữ liệu sau khi standardize. |
+
+---
+
+### 5.10 Mapping với IEC TS 61400-26 (Availability)
+
+**IEC TS 61400-26** định nghĩa availability classification với 3 states:
+- **UP**: Turbine available for power production
+- **DOWN**: Turbine not available for power production
+- **OTHER**: States that are neither UP nor DOWN (transitional, reduced availability, etc.)
+
+**SmartWPA mapping** (dùng trong `indicators.py` và `reliability.py`):
+
+| SmartWPA Status | IEC TS 61400-26 | Lý do |
+|-----------------|-----------------|-------|
+| `NORMAL` | **UP** | Turbine đang vận hành bình thường, available for production. |
+| `OVERPRODUCTION` | **UP** | Turbine đang vận hành (có thể do điều kiện đặc biệt), vẫn available. |
+| `STOP` | **DOWN** | Turbine không phát điện, not available. |
+| `UNDERPRODUCTION` | **OTHER** | Turbine đang vận hành nhưng performance giảm (có thể do fault, aging, etc.). Không phải UP (vì không đạt performance) nhưng cũng không phải DOWN (vì vẫn đang chạy). |
+| `CURTAILMENT` | **OTHER** | Turbine bị giới hạn bởi grid constraints. Không phải UP (vì không đạt full potential) nhưng cũng không phải DOWN (vì vẫn đang chạy). |
+| `PARTIAL_CURTAILMENT` | **OTHER** | Transitional state, không phải UP/DOWN rõ ràng. |
+| `PARTIAL_STOP` | **OTHER** | Transitional state sau stop, không phải UP/DOWN rõ ràng. |
+| `MEASUREMENT_ERROR` | **OTHER** | Không thể xác định state thực tế, không tính vào UP/DOWN. |
+| `UNKNOWN` | **OTHER** | Không xác định được, không tính vào UP/DOWN. |
+
+**Lý do một số trạng thái được xếp vào OTHER**:
+- **UNDERPRODUCTION**: Turbine vẫn đang chạy nhưng không đạt performance. Nếu xếp vào DOWN → sai (vì turbine không down). Nếu xếp vào UP → sai (vì không đạt full potential). → **OTHER** là hợp lý.
+- **CURTAILMENT**: Tương tự, turbine đang chạy nhưng bị giới hạn bởi external factors (grid). → **OTHER**.
+- **PARTIAL_***: Transitional states, không rõ ràng UP/DOWN. → **OTHER**.
+
+**Ứng dụng**:
+- **TBA (Time-based Availability)**: TBA = UP / (UP + DOWN)
+- **PBA (Production-based Availability)**: PBA = RealEnergy / ReachableEnergy (chỉ tính trên UP states)
+- **MTTR/MTTF/MTBF**: Chỉ tính trên UP ↔ DOWN transitions
+
+**Kết luận**: Mapping này **phù hợp với IEC TS 61400-26**, cho phép tính availability metrics chuẩn từ classification states của SmartWPA.
 
 ---
 
