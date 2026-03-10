@@ -1330,7 +1330,11 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 | `time_profile_seasonally` | Cùng nghĩa với `seasonally` (Q1, Q2, Q3, Q4) |
 | `source` | Nhóm theo giá trị source thứ 3 (Z-axis color gradient) |
 
-**Các loại regression trong response** (server luôn trả đủ; client chọn type để hiển thị): `linear`, `polynomial2`, `polynomial3`, `polynomial4`, `exponential`, `power`, `logarithmic`. Mỗi type có `{ type, coefficients, equation, r2, rmse }` (và `enabled`). `data.regression` = object key theo type; `data.regressions_by_group` (khi có group_by) = `{ "nhãn_nhóm": { "linear": {...}, "polynomial2": {...}, ... } }`.
+**Các loại regression trong response** (server luôn trả đủ; client chọn type để hiển thị): `linear`, `polynomial2`, `polynomial3`, `polynomial4`, `exponential`, `power`, `logarithmic`.
+
+- Mỗi type có `{ type, coefficients, equation, r2, rmse, enabled, line_points }`.
+- `line_points` là polyline (mặc định ~200 điểm/đường) để FE vẽ trực tiếp, không cần parse `equation`.
+- `data.regression` = object key theo type; `data.regressions_by_group` (khi có group_by) = `{ "nhãn_nhóm": { "linear": {...}, "polynomial2": {...}, ... } }`.
 
 ---
 
@@ -1363,12 +1367,30 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
     "y_source": "power",
     "group_by": "none",
     "regression": {
-      "enabled": false,
-      "type": "linear",
-      "coefficients": [],
-      "equation": null,
-      "r2": null,
-      "rmse": null
+      "linear": {
+        "enabled": true,
+        "type": "linear",
+        "coefficients": [312.5, -250.2],
+        "equation": "y = 312.5*x + -250.2",
+        "r2": 0.92,
+        "rmse": 85.3,
+        "line_points": [
+          { "x": 3.0, "y": 687.3 },
+          { "x": 8.0, "y": 2249.8 }
+        ]
+      },
+      "polynomial2": {
+        "enabled": true,
+        "type": "polynomial2",
+        "coefficients": [10.2, 280.1, -300.0],
+        "equation": "y = 10.2*x² + 280.1*x + -300",
+        "r2": 0.93,
+        "rmse": 82.1,
+        "line_points": [
+          { "x": 3.0, "y": 631.8 },
+          { "x": 8.0, "y": 2488.8 }
+        ]
+      }
     },
     "period": {
       "start_time_ms": 1325376000000,

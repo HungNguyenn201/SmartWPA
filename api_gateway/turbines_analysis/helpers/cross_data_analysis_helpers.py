@@ -68,6 +68,10 @@ REGRESSION_TYPES = [
     "exponential", "power", "logarithmic",
 ]
 
+# Default number of points to generate for each regression line (polyline).
+# This is independent from scatter max_points (typically up to ~20k).
+REGRESSION_LINE_POINTS_DEFAULT = 200
+
 
 def _regression_metrics(y: np.ndarray, y_hat: np.ndarray) -> Tuple[Optional[float], float]:
     """Return (r2, rmse) from actual vs predicted."""
@@ -245,20 +249,116 @@ def compute_regression(
     return linear_regression(x, y, force_zero)
 
 
+def _infer_x_domain(
+    x: np.ndarray,
+    reg_type: str,
+    fallback_min: float = 0.0,
+    fallback_max: float = 1.0,
+) -> Tuple[float, float]:
+    """Infer a safe x-domain [min, max] for generating regression line points."""
+    if x.size == 0:
+        return fallback_min, fallback_max
+
+    x_min = float(np.nanmin(x))
+    x_max = float(np.nanmax(x))
+    if not np.isfinite(x_min) or not np.isfinite(x_max) or x_min == x_max:
+        return fallback_min, fallback_max
+
+    # Domain constraints
+    if reg_type in ("logarithmic", "power"):
+        pos = x[np.isfinite(x) & (x > 0)]
+        if pos.size == 0:
+            return fallback_min, fallback_max
+        x_min = float(np.nanmin(pos))
+        x_max = float(np.nanmax(pos))
+        if not np.isfinite(x_min) or not np.isfinite(x_max) or x_min == x_max:
+            return fallback_min, fallback_max
+
+    return x_min, x_max
+
+
+def _predict_y_hat(reg_obj: Dict[str, Any], x_line: np.ndarray) -> np.ndarray:
+    """Predict y_hat for a regression object over x_line."""
+    reg_type = (reg_obj.get("type") or "").lower()
+    coeffs = reg_obj.get("coefficients") or []
+    try:
+        if reg_type == "linear" and len(coeffs) >= 2:
+            a, b = float(coeffs[0]), float(coeffs[1])
+            return a * x_line + b
+        if reg_type in ("polynomial2", "polynomial3", "polynomial4") and len(coeffs) >= 3:
+            c = np.array(coeffs, dtype=float)
+            return np.polyval(c, x_line)
+        if reg_type == "exponential" and len(coeffs) >= 2:
+            a, b = float(coeffs[0]), float(coeffs[1])
+            return a * np.exp(b * x_line)
+        if reg_type == "power" and len(coeffs) >= 2:
+            a, b = float(coeffs[0]), float(coeffs[1])
+            return a * np.power(x_line, b)
+        if reg_type == "logarithmic" and len(coeffs) >= 2:
+            a, b = float(coeffs[0]), float(coeffs[1])
+            return a * np.log(x_line) + b
+    except Exception:
+        pass
+    return np.full_like(x_line, np.nan, dtype=float)
+
+
+def _build_line_points(
+    reg_obj: Dict[str, Any],
+    x_domain: Tuple[float, float],
+    n_points: int,
+) -> List[Dict[str, float]]:
+    """Generate line points [{x, y}] for a regression object."""
+    if not reg_obj:
+        return []
+    coeffs = reg_obj.get("coefficients") or []
+    if not coeffs:
+        return []
+
+    x_min, x_max = x_domain
+    if not (np.isfinite(x_min) and np.isfinite(x_max)) or x_min == x_max:
+        return []
+
+    n = int(n_points) if n_points is not None else REGRESSION_LINE_POINTS_DEFAULT
+    n = max(2, min(2000, n))
+    x_line = np.linspace(x_min, x_max, n, dtype=float)
+
+    reg_type = (reg_obj.get("type") or "").lower()
+    if reg_type in ("logarithmic", "power"):
+        x_line = x_line[x_line > 0]
+        if x_line.size < 2:
+            return []
+
+    y_hat = _predict_y_hat(reg_obj, x_line)
+    valid = np.isfinite(x_line) & np.isfinite(y_hat)
+    if int(valid.sum()) < 2:
+        return []
+
+    xs = x_line[valid].tolist()
+    ys = y_hat[valid].tolist()
+    return [{"x": float(x), "y": float(y)} for x, y in zip(xs, ys)]
+
+
 def compute_regressions_all_types(
     x: np.ndarray,
     y: np.ndarray,
     force_zero: bool = False,
     types: Optional[List[str]] = None,
+    n_line_points: int = REGRESSION_LINE_POINTS_DEFAULT,
 ) -> Dict[str, Dict[str, Any]]:
-    """Compute all regression types on (x, y). Returns dict keyed by type."""
+    """Compute all regression types on (x, y). Returns dict keyed by type.
+
+    Each regression object includes `line_points` (polyline) for drawing on FE.
+    """
     if types is None:
         types = REGRESSION_TYPES
     out: Dict[str, Dict[str, Any]] = {}
     for reg_type in types:
         if reg_type not in VALID_REGRESSION_TYPES:
             continue
-        out[reg_type] = compute_regression(x, y, reg_type=reg_type, force_zero=force_zero)
+        reg_obj = compute_regression(x, y, reg_type=reg_type, force_zero=force_zero)
+        x_domain = _infer_x_domain(x, reg_type)
+        reg_obj["line_points"] = _build_line_points(reg_obj, x_domain, n_line_points)
+        out[reg_type] = reg_obj
     return out
 
 
@@ -269,6 +369,7 @@ def compute_regressions_by_group(
     group_col: str,
     force_zero: bool = False,
     types: Optional[List[str]] = None,
+    n_line_points: int = REGRESSION_LINE_POINTS_DEFAULT,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """For each group value, compute all regression types. Returns { group_label: { type: regression_obj } }."""
     if types is None:
@@ -280,7 +381,9 @@ def compute_regressions_by_group(
         label = str(group_val) if pd.notna(group_val) else "UNKNOWN"
         x = sub[x_col].to_numpy(dtype=float)
         y = sub[y_col].to_numpy(dtype=float)
-        out[label] = compute_regressions_all_types(x, y, force_zero=force_zero, types=types)
+        out[label] = compute_regressions_all_types(
+            x, y, force_zero=force_zero, types=types, n_line_points=n_line_points
+        )
     return out
 
 
