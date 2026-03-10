@@ -609,16 +609,16 @@ Response regression: `{ type, coefficients, equation, r2, rmse }`
 |----------|-------|
 | `none` | Không gom nhóm |
 | `classification` | Tô màu theo trạng thái vận hành (NORMAL, STOP, ...) |
-| `monthly` | Gom theo tháng cụ thể: "2023-01", "2023-02" |
+| `monthly` | Profile: gom tháng của tất cả năm — nhãn "Jan", "Feb", ... (đồng bộ với Power curve, Distribution, Speed, Time profile) |
 | `yearly` | Gom theo năm: "2023", "2024" |
-| `seasonally` | Gom theo quý cụ thể: "2023Q1", "2023Q2" |
-| `time_profile_monthly` | Gom theo tên tháng bất kể năm: "Jan", "Feb", ... |
-| `time_profile_seasonally` | Gom theo quý bất kể năm: "Q1", "Q2", "Q3", "Q4" |
+| `seasonally` | Profile: gom quý của tất cả năm — nhãn "Q1", "Q2", "Q3", "Q4" (đồng bộ với Power curve, Distribution, Speed, Time profile) |
+| `time_profile_monthly` | Cùng nghĩa với `monthly` (Jan, Feb, ...) |
+| `time_profile_seasonally` | Cùng nghĩa với `seasonally` (Q1, Q2, Q3, Q4) |
 | `source` | Trục Z: tô màu theo giá trị liên tục của 1 source (binning) |
 
-Cross Data Analysis theo manual (1.3.6.2.7) **chỉ có ở turbine level**; không hỗ trợ farm-level hay `group_by: turbine`.
+Cross Data Analysis có **turbine** (`POST /api/turbines/{id}/cross-data-analysis/`) và **farm** (`POST /api/farms/{id}/cross-data-analysis/`). Farm hỗ trợ `group_by: turbine` và khi `x_source=wind_direction` trả thêm `wind_rose` (sector aggregation: sectors_number, direction_source, sectors[] với count, y_mean, y_min, y_max, y_median; optionally by_turbine).
 
-**Response:** Theo manual, API không trả metadata đơn vị (`units`) hay nguồn dữ liệu (`data_source_used`) trong output. Response chỉ gồm: metadata turbine, `x_source`, `y_source`, `group_by`, `regression`, `period`, `summary` (rows_before_filters, rows_after_filters, points_returned), `points`, và tùy chọn `statistics`. Nếu sau này bổ sung `units`/source thì coi là mở rộng.
+**Response:** API không trả metadata đơn vị (`units`) hay nguồn dữ liệu (`data_source_used`) trong output. Response gồm: metadata (turbine/farm), `x_source`, `y_source`, `group_by`, `regression`, `period`, `summary`, `points`; farm thêm `summary.turbines_requested`, `summary.turbine_count`, mỗi point có `turbine_id` khi nhiều turbine; khi wind rose có `wind_rose`. Tùy chọn `statistics` (x_histogram, y_histogram, x_stats, y_stats).
 
 ### 13.3 Classification filter
 

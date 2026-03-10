@@ -57,6 +57,7 @@ from api_gateway.turbines_analysis.failure_charts import (
     FarmFailureTimelineChartAPIView,
 )
 from api_gateway.turbines_analysis.cross_data_analysis import TurbineCrossDataAnalysisAPIView
+from api_gateway.turbines_analysis.farm_cross_data_analysis import FarmCrossDataAnalysisAPIView
 from api_gateway.turbines_analysis.monthly_dashboard import (
     FarmDashboardMonthlyAnalysisAPIView,
     TurbineDashboardMonthlyAnalysisAPIView,
@@ -132,6 +133,7 @@ urlpatterns = [
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
     path('api/farms/<int:farm_id>/weibull/', FarmWeibullAPIView.as_view(), name='farm-weibull'),
     path('api/farms/<int:farm_id>/power-curve/', FarmPowerCurveAPIView.as_view(), name='farm-power-curve'),
+    path('api/farms/<int:farm_id>/cross-data-analysis/', FarmCrossDataAnalysisAPIView.as_view(), name='farm-cross-data-analysis'),
     # Failure charts (split into 2 APIs for FE simplicity)
     path('api/farms/<int:farm_id>/failure-indicators/', FarmFailureIndicatorsChartAPIView.as_view(), name='farm-failure-indicators'),
     path('api/farms/<int:farm_id>/failure-timeline/', FarmFailureTimelineChartAPIView.as_view(), name='farm-failure-timeline'),

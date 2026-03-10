@@ -451,7 +451,8 @@ def fetch_classification_for_farm(
 
 
 # -----------------------------------------------------------------------------
-# Temporal group series (monthly, yearly, seasonally)
+# Temporal group series (monthly, yearly, seasonally) — aligned with Power curve,
+# Distribution, Speed analysis, Time profile: monthly/seasonally = profile (gom năm).
 # -----------------------------------------------------------------------------
 
 
@@ -460,23 +461,21 @@ def get_temporal_group_series(
 ) -> Optional[pd.Series]:
     """Return group labels for each row.
 
-    Supports:
-      - monthly / yearly / seasonally  (time-series: includes year)
-      - time_profile_monthly / time_profile_seasonally  (profile: year-agnostic)
+    Semantics (aligned with power curve, distribution, speed analysis, time profile):
+      - monthly: profile — gom tháng của tất cả năm (Jan, Feb, ...).
+      - seasonally: profile — gom quý của tất cả năm (Q1, Q2, Q3, Q4).
+      - yearly: time-series — theo từng năm (2012, 2013, ...).
+      - time_profile_monthly / time_profile_seasonally: same as monthly/seasonally (profile).
     """
     idx = df.index
     if group_by == "monthly":
-        return ts_dt.loc[idx].dt.strftime("%Y-%m")
+        # Profile: month of year, same as Distribution/Speed/Time profile
+        return ts_dt.loc[idx].dt.strftime("%b")
     if group_by == "yearly":
         return ts_dt.loc[idx].dt.strftime("%Y")
     if group_by == "seasonally":
-        # Convert to naive datetime to avoid timezone warning when using to_period
-        ts_selected = ts_dt.loc[idx]
-        if ts_selected.dt.tz is not None:
-            ts_naive = ts_selected.dt.tz_localize(None)
-        else:
-            ts_naive = ts_selected
-        return ts_naive.dt.to_period("Q").astype(str)
+        # Profile: quarter of year (Q1–Q4), same as Distribution/Speed/Time profile
+        return ts_dt.loc[idx].dt.quarter.map({1: "Q1", 2: "Q2", 3: "Q3", 4: "Q4"})
     if group_by == "time_profile_monthly":
         return ts_dt.loc[idx].dt.strftime("%b")
     if group_by == "time_profile_seasonally":
@@ -699,3 +698,88 @@ def direction_filter_to_params(
         sector_ids = []
     sector_ids = parse_sector_ids(sector_ids, n)
     return direction_source, n, sector_ids
+
+
+# -----------------------------------------------------------------------------
+# Wind rose: sector aggregation when X axis = wind_direction
+# -----------------------------------------------------------------------------
+
+
+def compute_wind_rose_sectors(
+    df: pd.DataFrame,
+    sectors_number: int,
+    direction_source: str = "wind_direction",
+    y_col: str = "y",
+    turbine_id_col: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+    """
+    Aggregate df by direction sectors for wind rose output.
+    df must have columns: direction (x or direction_source), y.
+    Returns (sectors_list, by_turbine_list or None).
+    Each sector: sector_id, start_deg, end_deg, center_deg, count, y_mean, y_min, y_max, y_median.
+    If turbine_id_col is present and has multiple values, by_turbine_list is list of
+    { turbine_id, turbine_name?, sectors: [...] }.
+    """
+    if df.empty or y_col not in df.columns:
+        return [], None
+    # Use x as direction (already in df from build_xy_and_drop_invalid when x_source=wind_direction)
+    dir_col = "x" if "x" in df.columns else direction_source
+    if dir_col not in df.columns:
+        return [], None
+    n = max(1, min(CROSS_ANALYSIS_SECTORS_NUMBER_MAX, int(sectors_number)))
+    dir_vals = pd.to_numeric(df[dir_col], errors="coerce").to_numpy(dtype=float)
+    sec = compute_sector(dir_vals, n)
+    df = df.copy()
+    df["_sector"] = sec
+    y_vals = df["y"].to_numpy(dtype=float)
+
+    def sector_bounds(sector_id: int) -> Tuple[float, float, float]:
+        start_deg = (sector_id * 360.0) / n
+        end_deg = ((sector_id + 1) * 360.0) / n
+        center_deg = (sector_id + 0.5) * 360.0 / n
+        return start_deg, end_deg, center_deg
+
+    out_sectors: List[Dict[str, Any]] = []
+    for sid in range(n):
+        mask = df["_sector"] == sid
+        count = int(mask.sum())
+        start_deg, end_deg, center_deg = sector_bounds(sid)
+        if count == 0:
+            out_sectors.append({
+                "sector_id": sid,
+                "start_deg": round(start_deg, 2),
+                "end_deg": round(end_deg, 2),
+                "center_deg": round(center_deg, 2),
+                "count": 0,
+                "y_mean": None,
+                "y_min": None,
+                "y_max": None,
+                "y_median": None,
+            })
+        else:
+            ys = y_vals[mask]
+            out_sectors.append({
+                "sector_id": sid,
+                "start_deg": round(start_deg, 2),
+                "end_deg": round(end_deg, 2),
+                "center_deg": round(center_deg, 2),
+                "count": count,
+                "y_mean": round(float(np.mean(ys)), 4),
+                "y_min": round(float(np.min(ys)), 4),
+                "y_max": round(float(np.max(ys)), 4),
+                "y_median": round(float(np.median(ys)), 4),
+            })
+
+    by_turbine: Optional[List[Dict[str, Any]]] = None
+    if turbine_id_col and turbine_id_col in df.columns:
+        turb_ids = df[turbine_id_col].dropna().unique().tolist()
+        if len(turb_ids) > 1:
+            by_turbine = []
+            for tid in turb_ids:
+                sub = df[df[turbine_id_col] == tid]
+                sub_sectors, _ = compute_wind_rose_sectors(
+                    sub.rename(columns={}), sectors_number=n, direction_source=direction_source,
+                    y_col=y_col, turbine_id_col=None,
+                )
+                by_turbine.append({"turbine_id": int(tid), "sectors": sub_sectors})
+    return out_sectors, by_turbine

@@ -157,7 +157,45 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"x_source\": \"wind_speed\",\n  \"y_source\": \"power\",\n  \"group_by\": \"classification\",\n  \"max_points\": 20000,\n  \"regression\": { \"enabled\": true, \"type\": \"linear\", \"force_zero_intercept\": false },\n  \"datetime\": { \"start_time_ms\": {{start_time_ms}}, \"end_time_ms\": {{end_time_ms}} },\n  \"filters\": { \"months\": [], \"day_night\": \"\", \"classifications\": [] }\n}"
+              "raw": "{\n  \"x_source\": \"wind_speed\",\n  \"y_source\": \"power\",\n  \"group_by\": \"classification\",\n  \"max_points\": 20000,\n  \"regression\": { \"enabled\": true, \"type\": \"linear\", \"force_zero_intercept\": false },\n  \"datetime\": { \"start_time_ms\": {{start_time_ms}}, \"end_time_ms\": {{end_time_ms}} },\n  \"filters\": { \"months\": [], \"day_night\": \"\", \"classifications\": [], \"direction\": { \"source\": \"wind_direction\", \"sectors_number\": 12, \"sector_ids\": [] } }\n}"
+            }
+          }
+        },
+        {
+          "name": "Cross data analysis (farm)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/farms/{{farm_id}}/cross-data-analysis/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "farms", "{{farm_id}}", "cross-data-analysis", ""]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"x_source\": \"wind_speed\",\n  \"y_source\": \"power\",\n  \"group_by\": \"turbine\",\n  \"datetime\": { \"start_time_ms\": {{start_time_ms}}, \"end_time_ms\": {{end_time_ms}} },\n  \"filters\": { \"months\": [], \"day_night\": \"\", \"classifications\": [] }\n}"
+            }
+          }
+        },
+        {
+          "name": "Cross data analysis (farm, wind rose)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/farms/{{farm_id}}/cross-data-analysis/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "farms", "{{farm_id}}", "cross-data-analysis", ""]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"x_source\": \"wind_direction\",\n  \"y_source\": \"power\",\n  \"output\": \"auto\",\n  \"datetime\": { \"start_time_ms\": {{start_time_ms}}, \"end_time_ms\": {{end_time_ms}} },\n  \"filters\": { \"direction\": { \"source\": \"wind_direction\", \"sectors_number\": 12 } }\n}"
             }
           }
         },

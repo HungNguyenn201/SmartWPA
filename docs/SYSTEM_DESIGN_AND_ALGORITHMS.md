@@ -304,12 +304,63 @@ Triết lý:
 - Computation chạy 1 lần theo time-range → persist
 - Các API phân tích chủ yếu đọc DB và return payload cho FE
 
-Key endpoints:
-- Run computation: `/api/turbines/{id}/computation/`
-- Power curve (line + scatter): `/api/turbines/{id}/power-curve/`
-- Cross analysis (scatter flexible): `/api/turbines/{id}/cross-data-analysis/`
-- Monthly dashboard: `/api/farms/{id}/dashboard/monthly-analysis/`
-- Failure charts: `/api/farms/{id}/failure-indicators/` (histogram) và `/api/farms/{id}/failure-timeline/` (Gantt)
+### 5.1 Danh sách API analysis và mục đích
+
+**Turbine-level (prefix `/api/turbines/{id}/`):**
+
+| Endpoint | Mục đích (tóm tắt) | Data source |
+|----------|---------------------|-------------|
+| `POST computation/` | Chạy WPA pipeline, persist kết quả | Raw SCADA |
+| `GET classification-rate/` | Tỷ lệ % theo trạng thái phân loại | classification |
+| `GET distribution/` | Phân bố tần suất (wind_speed/power) | ClassificationPoint / raw |
+| `GET indicators/` | KPI năng lượng, reliability, AEP | indicators |
+| `GET wind-speed-analysis/` | Phân bố tốc độ, Weibull A/K, Speed/Power rose | ClassificationPoint + raw |
+| `GET static-table/` | Bảng thống kê theo nguồn | ClassificationPoint / raw |
+| `GET time-profile/` | Trung bình theo hourly/daily/monthly/seasonally | ClassificationPoint + raw |
+| `GET weibull/` | Tham số Weibull (A, K, mean) | weibull |
+| `GET power-curve/` | Đường cong công suất (line + scatter) | power_curve + classification |
+| `GET yaw-error/` | Histogram yaw + thống kê | yaw_error |
+| `GET timeseries/` | Chuỗi thời gian (raw hoặc resample) | Raw / classification |
+| `GET working-period/` | Working period theo biến thiên hiệu suất tháng | Raw |
+| `POST cross-data-analysis/` | Tương quan X/Y, group, regression | Raw / ClassificationPoint |
+| `GET dashboard/monthly-analysis/` | Phân tích theo tháng (1 turbine) | indicators + DailyProduction |
+
+**Farm-level (prefix `/api/farms/{id}/`):**
+
+| Endpoint | Mục đích (tóm tắt) | Data source |
+|----------|---------------------|-------------|
+| `GET indicators/` | Tổng hợp indicators nhiều turbine | indicators (từng turbine) |
+| `GET weibull/` | Weibull farm (tổng hợp) | weibull (từng turbine) |
+| `GET power-curve/` | Power curve farm (nhiều turbine) | power_curve (từng turbine) |
+| `POST cross-data-analysis/` | Cross turbine analysis: X/Y, group_by turbine, wind rose (X=wind_direction) | Raw / ClassificationPoint |
+| `GET failure-indicators/` | Biểu đồ cột: failures, MTTR, MTTF, MTBF | IndicatorData |
+| `GET failure-timeline/` | Timeline downtime (Gantt) | FailureEvent |
+| `GET dashboard/monthly-analysis/` | Dashboard tháng cấp farm | indicators + DailyProduction |
+
+Chi tiết từng chức năng, tham số và nhiệm vụ xem [ANALYSIS_FUNCTIONS_AND_RESPONSIBILITIES.md](ANALYSIS_FUNCTIONS_AND_RESPONSIBILITIES.md).
+
+### 5.2 Luồng dữ liệu analysis
+
+```mermaid
+flowchart LR
+  Client[Client/FE] -->|POST time range| Comp[POST computation]
+  Comp --> Load[load_turbine_data]
+  Load --> WPA[get_wpa]
+  WPA --> Persist[(Persist: Computation + ClassificationPoint, PowerCurve, Weibull, IndicatorData, FailureEvent, ...)]
+  Client -->|GET| APIs[GET analysis APIs]
+  APIs --> Persist
+```
+
+Computation chạy một lần theo time range và ghi kết quả vào DB. Các API phân tích (classification-rate, indicators, power-curve, weibull, yaw-error, failure-*, monthly-dashboard, …) đọc từ các bảng đã persist và trả payload cho FE.
+
+### 5.3 Đối chiếu với MUP WPA User Manual
+
+SmartWPA analysis APIs được thiết kế theo hướng dẫn Meteodyn WPA (MUP_WPA_UserManual_en.pdf): mục 1.3.6.2 (turbine analysis) và 1.3.5 (farm: dashboard, data analysis, computation). Phần lớn chức năng khớp công dụng với manual.
+
+Các điểm chưa implement so với manual:
+- **Direction mode:** split theo sector hướng gió (manual có ở Power curve, Time profile, Distribution, Speed analysis); code chỉ có time split (monthly, day_night, seasonally/yearly).
+- **Cross turbine analysis (farm):** đã có `POST /api/farms/{id}/cross-data-analysis/` (group_by=turbine, wind rose khi X=wind_direction).
+- **NTF (Nacelle Transfer Function):** power curve với wind speed đã hiệu chỉnh NTF; chưa hỗ trợ trong API.
 
 ---
 
