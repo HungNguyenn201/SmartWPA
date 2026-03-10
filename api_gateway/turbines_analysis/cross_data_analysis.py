@@ -24,7 +24,6 @@ from api_gateway.turbines_analysis.helpers._header import (
     CROSS_ANALYSIS_SOURCE_GROUP_BINS_MIN,
     CROSS_ANALYSIS_SOURCE_GROUP_BINS_MAX,
 )
-from api_gateway.turbines_analysis.helpers.cross_data_analysis_helpers import VALID_REGRESSION_TYPES
 from api_gateway.turbines_analysis.helpers.computation_helper import load_turbine_data
 from api_gateway.turbines_analysis.helpers.timeseries_helpers import SOURCE_TO_FIELD_MAPPING
 from facilities.models import Turbines
@@ -47,11 +46,7 @@ def _parse_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         months = []
 
-    regression = payload.get("regression") or {}
-    reg_type = (regression.get("type") or "linear").lower()
-    if reg_type not in VALID_REGRESSION_TYPES:
-        reg_type = "linear"
-
+    # Regression: no longer read from request; server always returns all types (see plan).
     group_cfg = payload.get("group") or {}
     classifications_raw = filters.get("classifications") or []
     classifications = [str(c).upper() for c in classifications_raw if c]
@@ -68,8 +63,6 @@ def _parse_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "x_source": payload.get("x_source"),
         "y_source": payload.get("y_source"),
         "group_by": (payload.get("group_by") or "none").lower(),
-        "regression": regression,
-        "regression_type": reg_type,
         "start_time": dt.get("start_time_ms"),
         "end_time": dt.get("end_time_ms"),
         "start_hour": dt.get("start_hour"),
@@ -98,8 +91,6 @@ def _run_turbine_pipeline(
     x_source = params["x_source"]
     y_source = params["y_source"]
     group_by = params["group_by"]
-    regression = params["regression"]
-    reg_type = params["regression_type"]
     start_ms = int(params["start_time"]) if params["start_time"] is not None else None
     end_ms = int(params["end_time"]) if params["end_time"] is not None else None
     start_hour = params["start_hour"]
@@ -225,13 +216,15 @@ def _run_turbine_pipeline(
     df = x_helpers.downsample_to_max_points(df, max_points)
     points = x_helpers.build_points_list(df, group_col="group" if group_series is not None else None, turbine_id_col=None)
 
-    reg_enabled = bool(regression.get("enabled", False))
-    force_zero = bool(regression.get("force_zero_intercept", False))
-    reg_obj = {"enabled": False, "type": reg_type, "coefficients": [], "equation": None, "r2": None, "rmse": None}
-    if reg_enabled and len(df) >= 2:
-        reg_obj = x_helpers.compute_regression(
-            df["x"].to_numpy(dtype=float), df["y"].to_numpy(dtype=float),
-            reg_type=reg_type, force_zero=force_zero,
+    force_zero = False
+    regression = x_helpers.compute_regressions_all_types(
+        df["x"].to_numpy(dtype=float), df["y"].to_numpy(dtype=float),
+        force_zero=force_zero,
+    )
+    regressions_by_group: Dict[str, Any] = {}
+    if group_series is not None and "group" in df.columns:
+        regressions_by_group = x_helpers.compute_regressions_by_group(
+            df, "x", "y", "group", force_zero=force_zero,
         )
 
     result = {
@@ -242,7 +235,7 @@ def _run_turbine_pipeline(
         "x_source": x_source,
         "y_source": y_source,
         "group_by": group_by,
-        "regression": reg_obj,
+        "regression": regression,
         "period": {"start_time_ms": start_ms, "end_time_ms": end_ms},
         "summary": {
             "rows_before_filters": before_count,
@@ -251,6 +244,8 @@ def _run_turbine_pipeline(
         },
         "points": points,
     }
+    if regressions_by_group:
+        result["regressions_by_group"] = regressions_by_group
     if statistics is not None:
         result["statistics"] = statistics
     return result
@@ -291,7 +286,8 @@ class TurbineCrossDataAnalysisAPIView(APIView):
                     status.HTTP_400_BAD_REQUEST,
                 )
 
-            cache_key = x_helpers.get_cross_analysis_cache_key("cross_data", int(turbine.id), payload)
+            payload_for_cache = {k: v for k, v in (payload or {}).items() if k != "regression"}
+            cache_key = x_helpers.get_cross_analysis_cache_key("cross_data", int(turbine.id), payload_for_cache)
             cached = cache.get(cache_key)
             if cached:
                 return success_response(cached)

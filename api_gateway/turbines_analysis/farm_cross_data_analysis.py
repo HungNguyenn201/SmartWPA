@@ -29,7 +29,6 @@ from api_gateway.turbines_analysis.helpers._header import (
     CROSS_ANALYSIS_MAX_POINTS_MAX,
     CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT,
 )
-from api_gateway.turbines_analysis.helpers.cross_data_analysis_helpers import VALID_REGRESSION_TYPES
 from api_gateway.turbines_analysis.helpers.timeseries_helpers import SOURCE_TO_FIELD_MAPPING
 from facilities.models import Turbines, Farm
 from permissions.views import CanViewFarm
@@ -88,8 +87,6 @@ def _run_farm_pipeline(
     x_source = params["x_source"]
     y_source = params["y_source"]
     group_by = params["group_by"]
-    regression = params["regression"]
-    reg_type = params["regression_type"]
     start_ms = int(params["start_time"]) if params["start_time"] is not None else None
     end_ms = int(params["end_time"]) if params["end_time"] is not None else None
     start_hour = params["start_hour"]
@@ -208,13 +205,15 @@ def _run_farm_pipeline(
             turbine_id_col="turbine_id" if "turbine_id" in df.columns else None,
         )
 
-    reg_enabled = bool(regression.get("enabled", False))
-    force_zero = bool(regression.get("force_zero_intercept", False))
-    reg_obj = {"enabled": False, "type": reg_type, "coefficients": [], "equation": None, "r2": None, "rmse": None}
-    if reg_enabled and len(df) >= 2:
-        reg_obj = x_helpers.compute_regression(
-            df["x"].to_numpy(dtype=float), df["y"].to_numpy(dtype=float),
-            reg_type=reg_type, force_zero=force_zero,
+    force_zero = False
+    regression = x_helpers.compute_regressions_all_types(
+        df["x"].to_numpy(dtype=float), df["y"].to_numpy(dtype=float),
+        force_zero=force_zero,
+    )
+    regressions_by_group: Dict[str, Any] = {}
+    if group_series is not None and "group" in df.columns:
+        regressions_by_group = x_helpers.compute_regressions_by_group(
+            df, "x", "y", "group", force_zero=force_zero,
         )
 
     turbine_id_list = [t.id for t in turbines]
@@ -232,11 +231,13 @@ def _run_farm_pipeline(
         "x_source": x_source,
         "y_source": y_source,
         "group_by": group_by,
-        "regression": reg_obj,
+        "regression": regression,
         "period": {"start_time_ms": start_ms, "end_time_ms": end_ms},
         "summary": summary,
         "points": points,
     }
+    if regressions_by_group:
+        result["regressions_by_group"] = regressions_by_group
     if wind_rose is not None:
         result["wind_rose"] = wind_rose
     if statistics is not None:
@@ -294,7 +295,8 @@ class FarmCrossDataAnalysisAPIView(APIView):
                     status.HTTP_400_BAD_REQUEST,
                 )
 
-            cache_key = x_helpers.get_cross_analysis_cache_key("farm_cross_data", int(farm.id), payload)
+            payload_for_cache = {k: v for k, v in (payload or {}).items() if k != "regression"}
+            cache_key = x_helpers.get_cross_analysis_cache_key("farm_cross_data", int(farm.id), payload_for_cache)
             cached = cache.get(cache_key)
             if cached:
                 return success_response(cached)

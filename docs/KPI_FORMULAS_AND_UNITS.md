@@ -587,13 +587,13 @@ Nguồn: `api_gateway/turbines_analysis/cross_data_analysis.py` + `helpers/cross
 
 Tham chiếu manual: Meteodyn WPA User Manual, mục 1.3.6.2.7
 
-### 13.1 Regression types
+### 13.1 Regression (luôn trả nhiều loại; không gửi trong request)
 
-API hỗ trợ 7 loại hồi quy qua `regression.type`:
+Request **không** còn tham số `regression`. Server luôn tính và trả đủ 7 loại hồi quy (linear, polynomial2, polynomial3, polynomial4, exponential, power, logarithmic) cho toàn bộ dữ liệu và cho từng nhóm khi có `group_by`. Client chọn loại nào thì dùng để vẽ.
 
 | Type | Mô hình | Điều kiện |
 |------|---------|-----------|
-| `linear` | y = a*x + b | Mặc định. Hỗ trợ `force_zero_intercept` |
+| `linear` | y = a*x + b | Mặc định. `force_zero_intercept` = false |
 | `polynomial2` | y = ax² + bx + c | Cần >= 3 điểm |
 | `polynomial3` | y = ax³ + bx² + cx + d | Cần >= 4 điểm |
 | `polynomial4` | y = ax⁴ + ... + e | Cần >= 5 điểm |
@@ -601,7 +601,7 @@ API hỗ trợ 7 loại hồi quy qua `regression.type`:
 | `power` | y = a * x^b | Yêu cầu x > 0 và y > 0 |
 | `logarithmic` | y = a * ln(x) + b | Yêu cầu x > 0 |
 
-Response regression: `{ type, coefficients, equation, r2, rmse }`
+**Response:** `data.regression` = object key theo type: `{ "linear": { type, coefficients, equation, r2, rmse, enabled }, "polynomial2": { ... }, ... }`. Khi có `group_by`: `data.regressions_by_group` = `{ "nhãn_nhóm": { "linear": { ... }, "polynomial2": { ... }, ... }, ... }`.
 
 ### 13.2 Group by options
 
@@ -618,7 +618,7 @@ Response regression: `{ type, coefficients, equation, r2, rmse }`
 
 Cross Data Analysis có **turbine** (`POST /api/turbines/{id}/cross-data-analysis/`) và **farm** (`POST /api/farms/{id}/cross-data-analysis/`). Farm hỗ trợ `group_by: turbine` và khi `x_source=wind_direction` trả thêm `wind_rose` (sector aggregation: sectors_number, direction_source, sectors[] với count, y_mean, y_min, y_max, y_median; optionally by_turbine).
 
-**Response:** API không trả metadata đơn vị (`units`) hay nguồn dữ liệu (`data_source_used`) trong output. Response gồm: metadata (turbine/farm), `x_source`, `y_source`, `group_by`, `regression`, `period`, `summary`, `points`; farm thêm `summary.turbines_requested`, `summary.turbine_count`, mỗi point có `turbine_id` khi nhiều turbine; khi wind rose có `wind_rose`. Tùy chọn `statistics` (x_histogram, y_histogram, x_stats, y_stats).
+**Response:** API không trả metadata đơn vị (`units`) hay nguồn dữ liệu (`data_source_used`) trong output. Response gồm: metadata (turbine/farm), `x_source`, `y_source`, `group_by`, `regression` (object key theo type: linear, polynomial2, …), `regressions_by_group` (khi có group_by: mỗi nhóm là object key theo type), `period`, `summary`, `points`; farm thêm `summary.turbines_requested`, `summary.turbine_count`, mỗi point có `turbine_id` khi nhiều turbine; khi wind rose có `wind_rose`. Tùy chọn `statistics` (x_histogram, y_histogram, x_stats, y_stats).
 
 ### 13.3 Classification filter
 

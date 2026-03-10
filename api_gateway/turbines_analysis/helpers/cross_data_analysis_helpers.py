@@ -62,6 +62,12 @@ VALID_REGRESSION_TYPES = frozenset({
     "exponential", "power", "logarithmic",
 })
 
+# Ordered list of regression types to return (client can select which to display).
+REGRESSION_TYPES = [
+    "linear", "polynomial2", "polynomial3", "polynomial4",
+    "exponential", "power", "logarithmic",
+]
+
 
 def _regression_metrics(y: np.ndarray, y_hat: np.ndarray) -> Tuple[Optional[float], float]:
     """Return (r2, rmse) from actual vs predicted."""
@@ -237,6 +243,45 @@ def compute_regression(
     if reg_type == "logarithmic":
         return logarithmic_regression(x, y)
     return linear_regression(x, y, force_zero)
+
+
+def compute_regressions_all_types(
+    x: np.ndarray,
+    y: np.ndarray,
+    force_zero: bool = False,
+    types: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Compute all regression types on (x, y). Returns dict keyed by type."""
+    if types is None:
+        types = REGRESSION_TYPES
+    out: Dict[str, Dict[str, Any]] = {}
+    for reg_type in types:
+        if reg_type not in VALID_REGRESSION_TYPES:
+            continue
+        out[reg_type] = compute_regression(x, y, reg_type=reg_type, force_zero=force_zero)
+    return out
+
+
+def compute_regressions_by_group(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    group_col: str,
+    force_zero: bool = False,
+    types: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """For each group value, compute all regression types. Returns { group_label: { type: regression_obj } }."""
+    if types is None:
+        types = REGRESSION_TYPES
+    if group_col not in df.columns or x_col not in df.columns or y_col not in df.columns:
+        return {}
+    out: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for group_val, sub in df.groupby(group_col, dropna=False):
+        label = str(group_val) if pd.notna(group_val) else "UNKNOWN"
+        x = sub[x_col].to_numpy(dtype=float)
+        y = sub[y_col].to_numpy(dtype=float)
+        out[label] = compute_regressions_all_types(x, y, force_zero=force_zero, types=types)
+    return out
 
 
 # -----------------------------------------------------------------------------

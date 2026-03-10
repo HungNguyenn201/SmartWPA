@@ -1290,10 +1290,7 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 | `y_source` | string | **Có** | — | Trục Y (cùng danh sách nguồn) |
 | `group_by` | string | Không | `"none"` | Cách nhóm điểm (xem bảng dưới) |
 | `max_points` | int | Không | `20000` | Giới hạn điểm trả về (1000–200000) |
-| `regression` | object | Không | `{enabled: false}` | Cấu hình đường hồi quy |
-| `regression.enabled` | bool | Không | `false` | Bật/tắt regression |
-| `regression.type` | string | Không | `"linear"` | Loại regression (xem bảng dưới) |
-| `regression.force_zero_intercept` | bool | Không | `false` | Bắt buộc qua gốc tọa độ |
+| *(regression)* | — | *Không dùng* | — | **Không gửi** `regression` trong request. Server luôn trả đủ các loại regression (linear, polynomial2, polynomial3, polynomial4, exponential, power, logarithmic) cho toàn bộ và theo từng nhóm khi có `group_by`; client chọn loại nào thì vẽ. |
 | `only_computation_data` | bool | Không | `false` | Chỉ dùng dữ liệu đã tính (ClassificationPoint) |
 | `include_statistics` | bool | Không | `false` | Trả thêm histogram + thống kê X/Y |
 | `datetime` | object | Không | — | Bộ lọc thời gian |
@@ -1318,7 +1315,7 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 
 **Method:** Chỉ **POST** (không hỗ trợ GET). **`filters.day_night`** chỉ nhận một trong ba giá trị: `"day"` (chỉ ban ngày), `"night"` (chỉ ban đêm), `""` hoặc omit (cả ngày lẫn đêm). Định nghĩa night: hour >= 18 hoặc hour < 6 (theo `_header`).
 
-**Mapping tham số API ↔ Manual 1.3.6.2.7:** Data → `x_source`, `y_source`, `group_by`, `group.*`, `only_computation_data`, `filters.classifications`; Regression → `regression.type`, `regression.force_zero_intercept`; Date time → `datetime.start_time_ms`, `datetime.end_time_ms` (và start_hour/end_hour); Advanced filters → `filters.months`, `filters.day_night`, `filters.direction`, `filters.ranges`. Tham số mở rộng API (không có trong manual): `max_points` (giới hạn điểm trả về), `include_statistics` (tương đương "Show statistics chart" trong manual). `only_computation_data` = "Only computation data" trong manual.
+**Mapping tham số API ↔ Manual 1.3.6.2.7:** Data → `x_source`, `y_source`, `group_by`, `group.*`, `only_computation_data`, `filters.classifications`; Date time → `datetime.start_time_ms`, `datetime.end_time_ms` (và start_hour/end_hour); Advanced filters → `filters.months`, `filters.day_night`, `filters.direction`, `filters.ranges`. **Regression:** Không truyền trong request; response luôn có `data.regression` (object key theo type: linear, polynomial2, …) và khi có `group_by` thêm `data.regressions_by_group` (mỗi nhóm cũng là object key theo type). Tham số mở rộng: `max_points`, `include_statistics`. `only_computation_data` = "Only computation data" trong manual.
 
 **Giá trị `group_by` hợp lệ (turbine):**
 
@@ -1333,17 +1330,7 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 | `time_profile_seasonally` | Cùng nghĩa với `seasonally` (Q1, Q2, Q3, Q4) |
 | `source` | Nhóm theo giá trị source thứ 3 (Z-axis color gradient) |
 
-**Giá trị `regression.type` hợp lệ:**
-
-| Giá trị | Mô tả | Phương trình |
-|---------|-------|-------------|
-| `linear` | Hồi quy tuyến tính | y = ax + b |
-| `polynomial2` | Đa thức bậc 2 | y = ax² + bx + c |
-| `polynomial3` | Đa thức bậc 3 | y = ax³ + bx² + cx + d |
-| `polynomial4` | Đa thức bậc 4 | y = ax⁴ + ... + e |
-| `exponential` | Hàm mũ | y = a·eᵇˣ |
-| `power` | Hàm lũy thừa | y = a·xᵇ |
-| `logarithmic` | Hàm logarit | y = a·ln(x) + b |
+**Các loại regression trong response** (server luôn trả đủ; client chọn type để hiển thị): `linear`, `polynomial2`, `polynomial3`, `polynomial4`, `exponential`, `power`, `logarithmic`. Mỗi type có `{ type, coefficients, equation, r2, rmse }` (và `enabled`). `data.regression` = object key theo type; `data.regressions_by_group` (khi có group_by) = `{ "nhãn_nhóm": { "linear": {...}, "polynomial2": {...}, ... } }`.
 
 ---
 
@@ -1416,20 +1403,19 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 }
 ```
 
-> **Kiểm tra**: `group_by` = "none", `group` = null cho mọi điểm, không có regression, không có statistics.
+> **Kiểm tra**: `group_by` = "none", `group` = null cho mọi điểm; `data.regression` là object key theo type (linear, polynomial2, …); client chọn type để vẽ.
 
 ---
 
-#### TH2: Nhóm theo classification + linear regression
+#### TH2: Nhóm theo classification + regression (nhiều type)
 
-**Request:**
+**Request:** (không gửi `regression`; server luôn trả đủ loại)
 
 ```json
 {
   "x_source": "wind_speed",
   "y_source": "power",
   "group_by": "classification",
-  "regression": { "enabled": true, "type": "linear" },
   "datetime": {
     "start_time_ms": 1325376000000,
     "end_time_ms": 1356998400000
@@ -1437,7 +1423,7 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 }
 ```
 
-**Response (200):**
+**Response (200):** Có `data.regression` (object key theo type) và `data.regressions_by_group` (mỗi nhóm là object key theo type).
 
 ```json
 {
@@ -1451,12 +1437,12 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
     "y_source": "power",
     "group_by": "classification",
     "regression": {
-      "enabled": true,
-      "type": "linear",
-      "coefficients": [350.2, -450.5],
-      "equation": "y = 350.20x + -450.50",
-      "r2": 0.892,
-      "rmse": 285.3
+      "linear": { "enabled": true, "type": "linear", "coefficients": [305.1, -200.0], "equation": "y = 305.1*x + -200.0", "r2": 0.90, "rmse": 92.1 }
+    },
+    "regressions_by_group": {
+      "NORMAL": { "linear": { "enabled": true, "type": "linear", "coefficients": [318.2, -260.1], "equation": "y = 318.2*x + -260.1", "r2": 0.93, "rmse": 80.2 } },
+      "CURTAILMENT": { "linear": { "enabled": true, "type": "linear", "coefficients": [280.0, -100.5], "equation": "y = 280.0*x + -100.5", "r2": 0.88, "rmse": 95.0 } },
+      "STOP": { "linear": { "enabled": false, "type": "linear", "coefficients": [], "equation": null, "r2": null, "rmse": null } }
     },
     "period": {
       "start_time_ms": 1325376000000,
@@ -1497,19 +1483,18 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 }
 ```
 
-> **Kiểm tra**: `group_by` = "classification", mỗi điểm có `group` là "NORMAL", "STOP", "CURTAILMENT", v.v. Regression type = "linear", có coefficients [a, b] cho phương trình y = ax + b.
+> **Kiểm tra**: `group_by` = "classification", mỗi điểm có `group`; `data.regression` = nhiều type (toàn bộ); `data.regressions_by_group` = mỗi nhóm có nhiều type (linear, polynomial2, …). Client chọn type để vẽ.
 
 ---
 
 #### TH3: Polynomial regression bậc 3
 
-**Request:**
+**Request:** (không gửi regression; response có sẵn `regression.polynomial3`)
 
 ```json
 {
   "x_source": "wind_speed",
   "y_source": "power",
-  "regression": { "enabled": true, "type": "polynomial3" },
   "datetime": {
     "start_time_ms": 1325376000000,
     "end_time_ms": 1356998400000
