@@ -1326,8 +1326,6 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 | `monthly` | Profile: gom tháng của tất cả năm (Jan, Feb, ...) — đồng bộ với Power curve, Distribution, Speed, Time profile |
 | `yearly` | Nhóm theo năm (2012, 2013, ...) |
 | `seasonally` | Profile: gom quý của tất cả năm (Q1, Q2, Q3, Q4) — đồng bộ với Power curve, Distribution, Speed, Time profile |
-| *(legacy)* `time_profile_monthly` | **Alias** của `monthly` (khuyến nghị dùng `monthly`) |
-| *(legacy)* `time_profile_seasonally` | **Alias** của `seasonally` (khuyến nghị dùng `seasonally`) |
 | `source` | Nhóm theo giá trị source thứ 3 (Z-axis color gradient) |
 
 **Các loại regression trong response** (server luôn trả đủ; client chọn type để hiển thị): `linear`, `polynomial2`, `polynomial3`, `polynomial4`, `exponential`, `power`, `logarithmic`.
@@ -1652,7 +1650,7 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/time-profile/?sources=power&sources
 }
 ```
 
-> **Kiểm tra**: `group_by` = "time_profile_monthly", `group` là tên tháng viết tắt: "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec".
+> **Kiểm tra**: `group_by` = "monthly", `group` là tên tháng viết tắt: "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec".
 
 ---
 

@@ -211,7 +211,6 @@ CROSS_ANALYSIS_STATUS_BY_CODE = (
 CROSS_ANALYSIS_GROUP_BY_TURBINE = "turbine"
 CROSS_ANALYSIS_GROUP_BY_VALUES = frozenset({
     "none", "classification", "monthly", "seasonally", "yearly", "turbine",
-    "time_profile_monthly", "time_profile_seasonally",
     "source",
 })
 

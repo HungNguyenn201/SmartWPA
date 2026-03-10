@@ -215,7 +215,9 @@ def logarithmic_regression(x: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
     except (np.linalg.LinAlgError, ValueError):
         return _empty_regression("logarithmic")
 
-    y_hat_full = np.where(x > 0, a * np.log(x) + b, np.nan)
+    pos = x > 0
+    y_hat_full = np.full_like(x, np.nan, dtype=float)
+    y_hat_full[pos] = a * np.log(x[pos]) + b
     valid = np.isfinite(y_hat_full) & np.isfinite(y)
     if valid.sum() < 2:
         return _empty_regression("logarithmic")
@@ -618,7 +620,6 @@ def get_temporal_group_series(
       - monthly: profile — gom tháng của tất cả năm (Jan, Feb, ...).
       - seasonally: profile — gom quý của tất cả năm (Q1, Q2, Q3, Q4).
       - yearly: time-series — theo từng năm (2012, 2013, ...).
-      - time_profile_monthly / time_profile_seasonally: same as monthly/seasonally (profile).
     """
     idx = df.index
     if group_by == "monthly":
@@ -628,10 +629,6 @@ def get_temporal_group_series(
         return ts_dt.loc[idx].dt.strftime("%Y")
     if group_by == "seasonally":
         # Profile: quarter of year (Q1–Q4), same as Distribution/Speed/Time profile
-        return ts_dt.loc[idx].dt.quarter.map({1: "Q1", 2: "Q2", 3: "Q3", 4: "Q4"})
-    if group_by == "time_profile_monthly":
-        return ts_dt.loc[idx].dt.strftime("%b")
-    if group_by == "time_profile_seasonally":
         return ts_dt.loc[idx].dt.quarter.map({1: "Q1", 2: "Q2", 3: "Q3", 4: "Q4"})
     return None
 

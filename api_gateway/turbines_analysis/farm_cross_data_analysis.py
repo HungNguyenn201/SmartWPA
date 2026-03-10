@@ -165,7 +165,7 @@ def _run_farm_pipeline(
         )
         if group_series is not None:
             df["group"] = group_series.values
-    elif group_by in ("monthly", "yearly", "seasonally", "time_profile_monthly", "time_profile_seasonally"):
+    elif group_by in ("monthly", "yearly", "seasonally"):
         group_series = x_helpers.get_temporal_group_series(df, ts_dt, group_by)
         if group_series is not None:
             df["group"] = group_series.values
