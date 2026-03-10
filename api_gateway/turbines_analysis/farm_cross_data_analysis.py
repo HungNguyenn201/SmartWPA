@@ -123,8 +123,13 @@ def _run_farm_pipeline(
     if df_raw is None or df_raw.empty:
         return None
 
-    df = x_helpers.select_and_rename_columns(df_raw, needed_sources, SOURCE_TO_FIELD_MAPPING)
-    x_helpers.normalize_timestamp_ms(df)
+    # NOTE:
+    # load_farm_scada_for_cross_analysis() already:
+    # - selects needed columns
+    # - renames SCADA fields -> source names (e.g. ACTIVE_POWER -> power)
+    # - adds timestamp_ms + turbine_id
+    # Re-selecting with SOURCE_TO_FIELD_MAPPING here would drop renamed columns and can lead to NO_DATA.
+    df = df_raw
     before_count = int(len(df))
 
     ts_dt = x_helpers.ensure_time_columns(df)
