@@ -407,20 +407,55 @@ def get_cross_analysis_cache_key(prefix: str, entity_id: int, payload: Dict[str,
 
 
 def normalize_timestamp_ms(df: pd.DataFrame) -> pd.DataFrame:
-    """Ensure df has 'timestamp_ms' (milliseconds). Mutates df, returns it."""
+    """
+    Ensure df has 'timestamp_ms' (epoch milliseconds). Mutates df, returns it.
+    - datetime64: convert ns -> ms.
+    - numeric (int/float): use to_epoch_ms (do NOT use pd.to_datetime; it treats numbers as ns).
+    - object/string: try pd.to_datetime then ns->ms; fallback to_epoch_ms.
+    """
     if "TIMESTAMP" not in df.columns:
         return df
     s = df["TIMESTAMP"]
 
     if pd.api.types.is_datetime64_any_dtype(s):
         df["timestamp_ms"] = s.astype("int64") // 10**6
+        _log_timestamp_sanity(df["timestamp_ms"], "datetime64")
         return df
+
+    if pd.api.types.is_integer_dtype(s) or pd.api.types.is_float_dtype(s):
+        df["timestamp_ms"] = s.apply(lambda x: to_epoch_ms(x) if pd.notna(x) else None)
+        _log_timestamp_sanity(df["timestamp_ms"], "numeric")
+        return df
+
     dt = pd.to_datetime(s, errors="coerce")
     if dt.notna().any():
         df["timestamp_ms"] = dt.astype("int64") // 10**6
+        _log_timestamp_sanity(df["timestamp_ms"], "parsed_datetime")
         return df
     df["timestamp_ms"] = s.apply(lambda x: to_epoch_ms(x) if pd.notna(x) else None)
+    _log_timestamp_sanity(df["timestamp_ms"], "object_fallback")
     return df
+
+
+def _log_timestamp_sanity(ts_ms: pd.Series, source: str) -> None:
+    """Log a warning if timestamp_ms looks like wrong unit (e.g. seconds passed as ms)."""
+    valid = ts_ms.dropna()
+    if valid.empty or len(valid) == 0:
+        return
+    try:
+        arr = pd.to_numeric(valid, errors="coerce").dropna()
+        if arr.empty:
+            return
+        low = float(arr.quantile(0.01))
+        mid = float(arr.median())
+        if mid < 1e11:
+            logger.warning(
+                "timestamp_ms looks like wrong unit (median=%.0f, p01=%.0f); "
+                "expected epoch ms (typically 13 digits). source=%s",
+                mid, low, source,
+            )
+    except Exception:
+        pass
 
 
 def select_and_rename_columns(
