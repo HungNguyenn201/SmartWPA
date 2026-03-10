@@ -62,7 +62,10 @@ def _parse_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "x_source": payload.get("x_source"),
         "y_source": payload.get("y_source"),
-        "group_by": (payload.get("group_by") or "none").lower(),
+        "group_by": ({
+            "time_profile_monthly": "monthly",
+            "time_profile_seasonally": "seasonally",
+        }.get((payload.get("group_by") or "none").lower(), (payload.get("group_by") or "none").lower())),
         "start_time": dt.get("start_time_ms"),
         "end_time": dt.get("end_time_ms"),
         "start_hour": dt.get("start_hour"),

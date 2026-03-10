@@ -408,11 +408,16 @@ def normalize_timestamp_ms(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure df has 'timestamp_ms' (milliseconds). Mutates df, returns it."""
     if "TIMESTAMP" not in df.columns:
         return df
-    if pd.api.types.is_datetime64_any_dtype(df["TIMESTAMP"]):
-        df["timestamp_ms"] = df["TIMESTAMP"].astype("int64") // 10**6
-    else:
-        df["timestamp_ms"] = df["TIMESTAMP"].astype("int64")
-        df["timestamp_ms"] = df["timestamp_ms"].apply(lambda x: to_epoch_ms(x) if pd.notna(x) else None)
+    s = df["TIMESTAMP"]
+
+    if pd.api.types.is_datetime64_any_dtype(s):
+        df["timestamp_ms"] = s.astype("int64") // 10**6
+        return df
+    dt = pd.to_datetime(s, errors="coerce")
+    if dt.notna().any():
+        df["timestamp_ms"] = dt.astype("int64") // 10**6
+        return df
+    df["timestamp_ms"] = s.apply(lambda x: to_epoch_ms(x) if pd.notna(x) else None)
     return df
 
 

@@ -205,17 +205,6 @@ def _run_farm_pipeline(
             turbine_id_col="turbine_id" if "turbine_id" in df.columns else None,
         )
 
-    force_zero = False
-    regression = x_helpers.compute_regressions_all_types(
-        df["x"].to_numpy(dtype=float), df["y"].to_numpy(dtype=float),
-        force_zero=force_zero,
-    )
-    regressions_by_group: Dict[str, Any] = {}
-    if group_series is not None and "group" in df.columns:
-        regressions_by_group = x_helpers.compute_regressions_by_group(
-            df, "x", "y", "group", force_zero=force_zero,
-        )
-
     turbine_id_list = [t.id for t in turbines]
     summary = {
         "rows_before_filters": before_count,
@@ -231,13 +220,10 @@ def _run_farm_pipeline(
         "x_source": x_source,
         "y_source": y_source,
         "group_by": group_by,
-        "regression": regression,
         "period": {"start_time_ms": start_ms, "end_time_ms": end_ms},
         "summary": summary,
         "points": points,
     }
-    if regressions_by_group:
-        result["regressions_by_group"] = regressions_by_group
     if wind_rose is not None:
         result["wind_rose"] = wind_rose
     if statistics is not None:
