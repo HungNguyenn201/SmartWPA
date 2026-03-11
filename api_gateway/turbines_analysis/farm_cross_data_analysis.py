@@ -20,8 +20,7 @@ from api_gateway.turbines_analysis.helpers import cross_data_analysis_helpers as
 from api_gateway.turbines_analysis.helpers.response_schema import success_response, error_response
 from api_gateway.turbines_analysis.helpers._header import (
     CROSS_ANALYSIS_CACHE_TIMEOUT_SECONDS,
-    CROSS_ANALYSIS_GROUP_BY_VALUES,
-    CROSS_ANALYSIS_STATUS_BY_CODE,
+    CROSS_ANALYSIS_GROUP_BY_FARM,
     CROSS_ANALYSIS_SOURCE_GROUP_BINS_DEFAULT,
     CROSS_ANALYSIS_SOURCE_GROUP_BINS_MIN,
     CROSS_ANALYSIS_SOURCE_GROUP_BINS_MAX,
@@ -37,8 +36,8 @@ from permissions.views import CanViewFarm
 logger = logging.getLogger("api_gateway.turbines_analysis")
 
 VALID_SOURCES = set(SOURCE_TO_FIELD_MAPPING.keys())
-# Farm allows group_by=turbine; all other group_by values same as turbine
-VALID_GROUP_BY_FARM = CROSS_ANALYSIS_GROUP_BY_VALUES
+# Farm (manual 1.3.5.3 b): no classification; has turbine, monthly, seasonally, yearly, hourly, day_night, source
+VALID_GROUP_BY_FARM = CROSS_ANALYSIS_GROUP_BY_FARM
 MAX_POINTS_PER_TURBINE_DEFAULT = 10_000
 MAX_POINTS_PER_TURBINE_MAX = 50_000
 
@@ -113,7 +112,8 @@ def _run_farm_pipeline(
             needed_sources.add(src)
     if group_by == "source" and group_source and group_source in VALID_SOURCES:
         needed_sources.add(group_source)
-    need_classification = group_by == "classification" or bool(classifications)
+    # Farm cross does not support classification (turbine-only)
+    need_classification = False
 
     df_raw, _data_source_used, _error_info = x_helpers.load_farm_scada_for_cross_analysis(
         turbines, start_ms, end_ms, needed_sources, SOURCE_TO_FIELD_MAPPING, max_points_per_turbine
@@ -137,26 +137,12 @@ def _run_farm_pipeline(
     df = x_helpers.apply_range_filters(df, ranges)
     df = x_helpers.build_xy_and_drop_invalid(df, x_source, y_source)
 
-    if need_classification:
-        cdf = x_helpers.fetch_classification_for_farm(
-            turbines, start_ms, end_ms, CROSS_ANALYSIS_STATUS_BY_CODE
-        )
-        if cdf is not None and not cdf.empty:
-            df = df.merge(cdf, on=["timestamp_ms", "turbine_id"], how="left")
-            df["group"] = df["group"].fillna("UNKNOWN")
-        else:
-            df["group"] = "UNKNOWN"
-        if classifications:
-            df = df[df["group"].isin(classifications)]
-
     after_count = int(len(df))
     if df.empty:
         return None
 
     group_series = None
-    if group_by == "classification" and "group" in df.columns:
-        group_series = df["group"]
-    elif group_by == "turbine":
+    if group_by == "turbine":
         # Use turbine_id for group label; build_points_list will add turbine_id to each point
         if "turbine_id" in df.columns:
             turbine_names = {t.id: t.name for t in turbines}
@@ -168,7 +154,7 @@ def _run_farm_pipeline(
         )
         if group_series is not None:
             df["group"] = group_series.values
-    elif group_by in ("monthly", "yearly", "seasonally"):
+    elif group_by in ("monthly", "yearly", "seasonally", "hourly", "day_night"):
         group_series = x_helpers.get_temporal_group_series(df, ts_dt, group_by)
         if group_series is not None:
             df["group"] = group_series.values
@@ -184,9 +170,10 @@ def _run_farm_pipeline(
     if is_wind_rose:
         sectors_number_rose = sectors_number or CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT
         sectors_number_rose = max(1, min(72, sectors_number_rose))
+        turbine_id_col_rose = "turbine_id" if group_by == "turbine" and "turbine_id" in df.columns else None
         sectors_list, by_turbine_list = x_helpers.compute_wind_rose_sectors(
             df, sectors_number_rose, direction_source=x_source, y_col="y",
-            turbine_id_col="turbine_id" if group_by == "turbine" and "turbine_id" in df.columns else None,
+            turbine_id_col=turbine_id_col_rose,
         )
         wind_rose = {
             "sectors_number": sectors_number_rose,
@@ -198,6 +185,21 @@ def _run_farm_pipeline(
             for bt in by_turbine_list:
                 bt["turbine_name"] = turbine_names.get(bt["turbine_id"], f"WT{bt['turbine_id']}")
             wind_rose["by_turbine"] = by_turbine_list
+        # Data splitting by temporal group (manual 1.3.5.3 b): monthly, seasonally, yearly, hourly, day_night
+        elif group_by in ("monthly", "seasonally", "yearly", "hourly", "day_night") and "group" in df.columns:
+            by_group: Dict[str, List[Dict[str, Any]]] = {}
+            for g in df["group"].dropna().unique().tolist():
+                label = str(g)
+                sub = df[df["group"] == g]
+                if sub.empty:
+                    continue
+                sub_sectors, _ = x_helpers.compute_wind_rose_sectors(
+                    sub, sectors_number_rose, direction_source=x_source, y_col="y",
+                    turbine_id_col=None,
+                )
+                by_group[label] = sub_sectors
+            if by_group:
+                wind_rose["by_group"] = by_group
     else:
         # Return curve-like data per turbine (power-curve style).
         turbine_names = {t.id: t.name for t in turbines}

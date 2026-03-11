@@ -208,9 +208,15 @@ CROSS_ANALYSIS_STATUS_BY_CODE = (
 )
 
 # Valid group_by values
+# Turbine cross: none, classification, monthly, seasonally, yearly, source (turbine excluded at endpoint)
 CROSS_ANALYSIS_GROUP_BY_TURBINE = "turbine"
 CROSS_ANALYSIS_GROUP_BY_VALUES = frozenset({
     "none", "classification", "monthly", "seasonally", "yearly", "turbine",
+    "source",
+})
+# Farm cross (manual 1.3.5.3 b): no classification; has hourly, day_night for data splitting + wind_rose
+CROSS_ANALYSIS_GROUP_BY_FARM = frozenset({
+    "none", "turbine", "monthly", "seasonally", "yearly", "hourly", "day_night",
     "source",
 })
 

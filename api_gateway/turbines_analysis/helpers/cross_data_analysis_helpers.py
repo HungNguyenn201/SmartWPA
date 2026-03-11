@@ -655,6 +655,8 @@ def get_temporal_group_series(
       - monthly: profile — gom tháng của tất cả năm (Jan, Feb, ...).
       - seasonally: profile — gom quý của tất cả năm (Q1, Q2, Q3, Q4).
       - yearly: time-series — theo từng năm (2012, 2013, ...).
+      - hourly: profile — gom theo giờ trong ngày (H00..H23). Farm only.
+      - day_night: Day / Night (Night if hour >= night_start or hour < night_end). Farm only.
     """
     idx = df.index
     if group_by == "monthly":
@@ -665,6 +667,20 @@ def get_temporal_group_series(
     if group_by == "seasonally":
         # Profile: quarter of year (Q1–Q4), same as Distribution/Speed/Time profile
         return ts_dt.loc[idx].dt.quarter.map({1: "Q1", 2: "Q2", 3: "Q3", 4: "Q4"})
+    if group_by == "hourly":
+        # Hour of day 0..23 -> H00, H01, ..., H23
+        hour_vals = ts_dt.loc[idx].dt.hour
+        return hour_vals.apply(lambda h: f"H{h:02d}")
+    if group_by == "day_night":
+        # Night: hour >= night_start (18) or hour < night_end (6); else Day
+        hour_vals = df["_hour"] if "_hour" in df.columns else ts_dt.loc[idx].dt.hour
+        is_night = (hour_vals >= CROSS_ANALYSIS_DAY_NIGHT_NIGHT_START_HOUR) | (
+            hour_vals < CROSS_ANALYSIS_DAY_NIGHT_NIGHT_END_HOUR
+        )
+        return pd.Series(
+            np.where(is_night, "Night", "Day"),
+            index=idx,
+        )
     return None
 
 
