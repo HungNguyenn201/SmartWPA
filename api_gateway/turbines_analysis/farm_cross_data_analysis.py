@@ -2,7 +2,7 @@
 Farm-level Cross turbine analysis API (manual 1.3.5.3 b).
 
 POST /api/farms/{farm_id}/cross-data-analysis/
-- Same request schema as turbine cross-data, plus: turbine_ids, max_points_per_turbine, output.
+- Same request schema as turbine cross-data, plus: turbine_ids, max_points_per_turbine. Luôn trả curve (binned) khi X≠wind_direction, wind_rose khi X=wind_direction; không có tham số output.
 - When x_source == wind_direction, response includes wind_rose (sector aggregation).
 - group_by=turbine allowed; response points include turbine_id.
 """
@@ -28,6 +28,7 @@ from api_gateway.turbines_analysis.helpers._header import (
     CROSS_ANALYSIS_MAX_POINTS_MIN,
     CROSS_ANALYSIS_MAX_POINTS_MAX,
     CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT,
+    CROSS_ANALYSIS_CURVE_BINS_DEFAULT,
 )
 from api_gateway.turbines_analysis.helpers.timeseries_helpers import SOURCE_TO_FIELD_MAPPING
 from facilities.models import Turbines, Farm
@@ -73,8 +74,6 @@ def _parse_farm_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         max_ppt = MAX_POINTS_PER_TURBINE_DEFAULT
     params["max_points_per_turbine"] = max_ppt
-    output = (payload.get("output") or "auto").lower()
-    params["output"] = output if output in ("scatter", "curve", "auto") else "auto"
     return params
 
 
@@ -101,7 +100,6 @@ def _run_farm_pipeline(
     group_source = params["group_source"]
     include_statistics = params["include_statistics"]
     max_points_per_turbine = params["max_points_per_turbine"]
-    output_mode = params["output"]
 
     needed_sources = {x_source, y_source}
     direction_source, sectors_number, sector_ids = x_helpers.direction_filter_to_params(
@@ -179,11 +177,12 @@ def _run_farm_pipeline(
     if include_statistics and len(df) > 0:
         statistics = x_helpers.compute_xy_statistics(df, "x", "y")
 
-    is_wind_rose = (output_mode == "auto" and x_source == "wind_direction") or output_mode == "curve"
+    is_wind_rose = x_source == "wind_direction"
     wind_rose = None
     points: List[Dict[str, Any]] = []
+    curve_series: List[Dict[str, Any]] = []
 
-    if is_wind_rose and x_source == "wind_direction":
+    if is_wind_rose:
         sectors_number_rose = sectors_number or CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT
         sectors_number_rose = max(1, min(72, sectors_number_rose))
         sectors_list, by_turbine_list = x_helpers.compute_wind_rose_sectors(
@@ -200,14 +199,14 @@ def _run_farm_pipeline(
             for bt in by_turbine_list:
                 bt["turbine_name"] = turbine_names.get(bt["turbine_id"], f"WT{bt['turbine_id']}")
             wind_rose["by_turbine"] = by_turbine_list
-        # Optionally return empty or downsampled points for wind rose (plan: can be empty)
-        points = []
     else:
-        df = x_helpers.downsample_to_max_points(df, max_points)
-        points = x_helpers.build_points_list(
+        curve_series = x_helpers.compute_binned_curve_series(
             df,
+            x_col="x",
+            y_col="y",
             group_col="group" if group_series is not None else None,
             turbine_id_col="turbine_id" if "turbine_id" in df.columns else None,
+            n_bins=CROSS_ANALYSIS_CURVE_BINS_DEFAULT,
         )
 
     turbine_id_list = [t.id for t in turbines]
@@ -229,6 +228,9 @@ def _run_farm_pipeline(
         "summary": summary,
         "points": points,
     }
+    if curve_series:
+        result["curve_series"] = curve_series
+        result["summary"]["curve_series_count"] = len(curve_series)
     if wind_rose is not None:
         result["wind_rose"] = wind_rose
     if statistics is not None:

@@ -750,6 +750,91 @@ def downsample_to_max_points(df: pd.DataFrame, max_points: int) -> pd.DataFrame:
     return df.iloc[idx]
 
 
+def compute_binned_curve_series(
+    df: pd.DataFrame,
+    x_col: str = "x",
+    y_col: str = "y",
+    group_col: Optional[str] = None,
+    turbine_id_col: Optional[str] = None,
+    n_bins: int = 50,
+) -> List[Dict[str, Any]]:
+    """
+    Bin X and aggregate Y per (group, turbine_id). Returns one series per group/turbine
+    with bins: [{ x_center, y_mean, y_median, count }, ...] for curve-style chart.
+    """
+    from api_gateway.turbines_analysis.helpers._header import (
+        CROSS_ANALYSIS_CURVE_BINS_MIN,
+        CROSS_ANALYSIS_CURVE_BINS_MAX,
+    )
+    if x_col not in df.columns or y_col not in df.columns or df.empty:
+        return []
+    n_bins = max(CROSS_ANALYSIS_CURVE_BINS_MIN, min(CROSS_ANALYSIS_CURVE_BINS_MAX, n_bins))
+    x = pd.to_numeric(df[x_col], errors="coerce")
+    y = pd.to_numeric(df[y_col], errors="coerce")
+    valid = np.isfinite(x) & np.isfinite(y)
+    if valid.sum() < 2:
+        return []
+    x_min, x_max = float(x[valid].min()), float(x[valid].max())
+    if x_max <= x_min:
+        x_max = x_min + 1e-6
+    edges = np.linspace(x_min, x_max, n_bins + 1)
+    df = df.loc[valid].copy()
+    df["_x_bin"] = np.digitize(df[x_col].values, edges) - 1
+    df["_x_bin"] = np.clip(df["_x_bin"], 0, n_bins - 1)
+    df["_y"] = df[y_col]
+
+    group_col = group_col if group_col and group_col in df.columns else None
+    turbine_id_col = turbine_id_col if turbine_id_col and turbine_id_col in df.columns else None
+    if group_col is None and turbine_id_col is None:
+        keys = [("_all", None)]
+        df["_key"] = "_all"
+        df["_tid"] = None
+    elif group_col and turbine_id_col:
+        df["_key"] = df[group_col].astype(str) + "\0" + df[turbine_id_col].astype(str)
+        df["_tid"] = df[turbine_id_col]
+        gb = df.groupby([group_col, turbine_id_col]).size().reset_index()
+        keys = list(zip(gb[group_col].astype(str) + "\0" + gb[turbine_id_col].astype(str), gb[turbine_id_col].tolist()))
+        key_to_label = dict(zip(gb[group_col].astype(str) + "\0" + gb[turbine_id_col].astype(str), gb[group_col].astype(str)))
+    elif group_col:
+        df["_key"] = df[group_col].astype(str)
+        df["_tid"] = None
+        keys = [(g, None) for g in df[group_col].dropna().unique().tolist()]
+        key_to_label = {g: g for g in df[group_col].dropna().unique().tolist()}
+    else:
+        df["_key"] = df[turbine_id_col].astype(str)
+        df["_tid"] = df[turbine_id_col]
+        keys = [(str(tid), tid) for tid in df[turbine_id_col].dropna().unique().tolist()]
+        key_to_label = {str(tid): str(tid) for tid in df[turbine_id_col].dropna().unique().tolist()}
+
+    if group_col is None and turbine_id_col is None:
+        key_to_label = {"_all": "_all"}
+
+    out: List[Dict[str, Any]] = []
+    for key_label, tid in keys:
+        sub = df[df["_key"] == key_label] if key_label != "_all" else df
+        agg = sub.groupby("_x_bin", as_index=False).agg(
+            x_center=(x_col, "mean"),
+            y_mean=("_y", "mean"),
+            y_median=("_y", "median"),
+            count=("_y", "count"),
+        )
+        bins_list = []
+        for _, row in agg.iterrows():
+            bins_list.append({
+                "x_center": float(row["x_center"]),
+                "y_mean": float(row["y_mean"]),
+                "y_median": float(row["y_median"]),
+                "count": int(row["count"]),
+            })
+        bins_list.sort(key=lambda b: b["x_center"])
+        label = key_to_label.get(key_label, key_label)
+        item: Dict[str, Any] = {"group": label, "bins": bins_list}
+        if turbine_id_col and tid is not None:
+            item["turbine_id"] = int(tid)
+        out.append(item)
+    return out
+
+
 def build_points_list(
     df: pd.DataFrame,
     group_col: Optional[str] = "group",

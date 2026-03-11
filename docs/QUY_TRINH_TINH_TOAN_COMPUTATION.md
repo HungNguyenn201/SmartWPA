@@ -93,8 +93,7 @@ Các cột tùy chọn (nếu có thì dùng):
 Theo `timestamp.timestamp_prepare()`:
 - Xóa trùng `TIMESTAMP`, giữ bản ghi đầu (`drop_duplicates`)
 - `set_index('TIMESTAMP')`
-- Xác định **resolution** = mode của sai phân timestamp:  
-  \( \Delta t = \operatorname{mode}(\Delta TIMESTAMP) \)
+- Xác định **resolution** = mode của sai phân timestamp: **Δt** = mode(Δ TIMESTAMP).
 - Nếu dữ liệu **finer** hơn 10 phút: resample về `10min` bằng **mean**
 - Nếu dữ liệu **coarser** hơn 10 phút (30/60 phút…): raise error (code hiện tại báo “Time resolution is too low”)
 - Fill missing timestamps: `reindex` trên dải `pd.date_range(..., freq='10min')` → tạo NaN cho các điểm thiếu
@@ -102,8 +101,7 @@ Theo `timestamp.timestamp_prepare()`:
 ### 2.3 Giả định đơn vị
 Tài liệu này mô tả theo implementation:
 - `WIND_SPEED`: m/s
-- `ACTIVE_POWER`: đơn vị công suất SCADA (có thể kW hoặc MW tuỳ OEM)  
-  Năng lượng được tính theo \(E \approx \sum P \cdot \Delta t\) (đổi \(\Delta t\) sang giờ).
+- `ACTIVE_POWER`: đơn vị công suất SCADA (có thể kW hoặc MW tuỳ OEM). Năng lượng được tính theo **E** ≈ Σ **P**·**Δt** (đổi **Δt** sang giờ).
 - `TEMPERATURE`: nếu mean < 223 → coi là °C và chuyển sang K.
 - `PRESSURE`: Pa
 - `HUMIDITY`: nếu mean > 1 → coi là % và chia 100 để về [0,1].
@@ -159,39 +157,26 @@ Trong `smartWPA.required_constants` cần có:
 
 | Hằng số | Định nghĩa IEC 61400-12-1:2022 | Cách ước lượng trong SmartWPA | Lý do dùng công thức |
 |--------|--------------------------------|--------------------------------|----------------------|
-| **P_rated** | Rated power: công suất gán bởi nhà sản xuất cho điều kiện vận hành xác định (Clause 3.22). | Median của top 0,5% điểm có \(P \ge 0\). | Median giảm nhạy với spike/outlier; không phụ thuộc nameplate có thể thiếu trong SCADA. |
-| **V_rated** | Không định nghĩa trực tiếp trong IEC; thường hiểu là tốc độ gió tại đó turbine đạt công suất định mức. | Bin 0,5 m/s nhỏ nhất mà \(\bar{P}_{bin} \ge 0{,}98 \cdot P_{rated}\) và \(N_{bin} \ge 30\). | 0,98 = “rated_alpha” theo config IEC-inspired; 30 điểm tương đương ≥ 5 giờ (10-min SCADA) đảm bảo thống kê ổn định. |
-| **V_cutin** | IEC 3.5: “Lowest wind speed at which a wind turbine will begin to produce power”. | (1) Time-series: median tốc độ gió tại các transition 0 → P > 0,05·P_rated, duy trì ≥ 3 sample liên tiếp. (2) Fallback bin: bin nhỏ nhất \(V < V_{rated}\) với \(\bar{P}_{bin} > 0{,}05 \cdot P_{rated}\), \(N_{bin} \ge 30\). | 0,05 = “cutin_alpha”; time-series phản ánh hysteresis tốt hơn khi đủ dữ liệu (≥ ~4 tháng). |
-| **V_cutout** | IEC 3.6: “Wind speed at which a wind turbine cuts out from the grid due to high wind speed”. | (1) Time-series: median tốc độ tại các sự kiện shutdown (P rated → ~0 trong ≤ 2 sample). (2) Fallback bin: bin nhỏ nhất \(V > V_{rated}\) với \(\bar{P}_{bin} < 0{,}2 \cdot P_{rated}\) và tỉ lệ điểm “near-zero” (\(P < 0{,}02 \cdot P_{rated}\)) > 70%. | Phân biệt vùng cắt lưới do gió mạnh với curtailment; 70% near-zero xác nhận đây là shutdown thật. |
+| **P_rated** | Rated power: công suất gán bởi nhà sản xuất cho điều kiện vận hành xác định (Clause 3.22). | Median của top 0,5% điểm có **P** ≥ 0. | Median giảm nhạy với spike/outlier; không phụ thuộc nameplate có thể thiếu trong SCADA. |
+| **V_rated** | Không định nghĩa trực tiếp trong IEC; thường hiểu là tốc độ gió tại đó turbine đạt công suất định mức. | Bin 0,5 m/s nhỏ nhất mà **P̄_bin** ≥ 0,98·**P_rated** và **N_bin** ≥ 30. | 0,98 = “rated_alpha” theo config IEC-inspired; 30 điểm tương đương ≥ 5 giờ (10-min SCADA) đảm bảo thống kê ổn định. |
+| **V_cutin** | IEC 3.5: “Lowest wind speed at which a wind turbine will begin to produce power”. | (1) Time-series: median tốc độ gió tại các transition 0 → P > 0,05·P_rated, duy trì ≥ 3 sample liên tiếp. (2) Fallback bin: bin nhỏ nhất **V** < **V_rated** với **P̄_bin** > 0,05·**P_rated**, **N_bin** ≥ 30. | 0,05 = “cutin_alpha”; time-series phản ánh hysteresis tốt hơn khi đủ dữ liệu (≥ ~4 tháng). |
+| **V_cutout** | IEC 3.6: “Wind speed at which a wind turbine cuts out from the grid due to high wind speed”. | (1) Time-series: median tốc độ tại các sự kiện shutdown (P rated → ~0 trong ≤ 2 sample). (2) Fallback bin: bin nhỏ nhất **V** > **V_rated** với **P̄_bin** < 0,2·**P_rated** và tỉ lệ điểm “near-zero” (**P** < 0,02·**P_rated**) > 70%. | Phân biệt vùng cắt lưới do gió mạnh với curtailment; 70% near-zero xác nhận đây là shutdown thật. |
 
 **Công thức chi tiết (code: `analytics/computation/constants_estimation.py`):**
 
-- **P_rated**:
-  \[
-  P_{rated} = \operatorname{median}\bigl(\text{top } \max(20,\, \lceil n \cdot 0{,}005 \rceil) \text{ điểm } P \ge 0\bigr)
-  \]
-  với \(n\) = số điểm dữ liệu. `prated_top_fraction = 0.005`, `prated_min_points = 20`.
+- **P_rated** = median(top max(20, ⌈n·0,005⌉) điểm P ≥ 0), với **n** = số điểm dữ liệu. `prated_top_fraction = 0.005`, `prated_min_points = 20`.
 
-- **V_rated** (bin 0,5 m/s, edges 0,25 — 0,75 — 1,25 — ... theo IEC-style):
-  \[
-  V_{rated} = \min\bigl\{ v_i \mid \bar{P}_i \ge 0{,}98 \cdot P_{rated},\; N_i \ge 30 \bigr\}
-  \]
-  Nếu không có bin nào thỏa: lấy bin có \(\bar{P}\) lớn nhất.
+- **V_rated** (bin 0,5 m/s, edges 0,25 — 0,75 — 1,25 — ... theo IEC-style):  
+  V_rated = min{ v_i | P̄_i ≥ 0,98·P_rated và N_i ≥ 30 }.  
+  Nếu không có bin nào thỏa: lấy bin có **P̄** lớn nhất.
 
-- **V_cutin (bin-based)**:
-  \[
-  V_{cutin} = \min\bigl\{ v_i < V_{rated} \mid \bar{P}_i > 0{,}05 \cdot P_{rated},\; N_i \ge 30 \bigr\}
-  \]
+- **V_cutin (bin-based)** = min{ v_i < V_rated | P̄_i > 0,05·P_rated và N_i ≥ 30 }.
 
-- **V_cutout (bin-based)**:
-  \[
-  V_{cutout} = \min\bigl\{ v_i > V_{rated} \mid \bar{P}_i < 0{,}2 \cdot P_{rated},\;
-  \frac{\#(P < 0{,}02 \cdot P_{rated})}{N_i} > 0{,}7,\; N_i \ge 30 \bigr\}
-  \]
+- **V_cutout (bin-based)** = min{ v_i > V_rated | P̄_i < 0,2·P_rated, tỉ lệ điểm P < 0,02·P_rated > 70%, N_i ≥ 30 }.
 
 **Bộ lọc sơ bộ trước khi ước lượng (IEC-inspired):**
-- Tốc độ gió: chỉ giữ điểm trong \([0,\, 32]\) m/s (32 m/s ~ tốc độ sinh tồn cực đoan cho phần lớn turbine — IEC 61400-50-1 / data quality).
-- Công suất: \([-500,\, 10000]\) kW (loại cảm biến lỗi thô trước khi biết P_rated).
+- Tốc độ gió: chỉ giữ điểm trong [0, 32] m/s (32 m/s ~ tốc độ sinh tồn cực đoan cho phần lớn turbine — IEC 61400-50-1 / data quality).
+- Công suất: [−500, 10000] kW (loại cảm biến lỗi thô trước khi biết P_rated).
 
 ### 3.2 Lưu constants đã ước lượng để trace (DB)
 
@@ -275,10 +260,10 @@ Gán `status` ban đầu theo rule:
 
 Sau đó “siết” thêm `MEASUREMENT_ERROR` theo các điều kiện:
 - Wind speed ngoài [0, 32] m/s
-- Power ngoài \([-0.05\cdot P_{rated}, 1.1\cdot P_{rated}]\)
+- Power ngoài [-0,05·**P_rated**, 1,1·**P_rated**]
 - `WIND_SPEED` hoặc `ACTIVE_POWER` bị NaN
-- Nếu \(V < V_{cutin} - 1\) hoặc \(V > V_{cutout} + 1\) mà `ACTIVE_POWER > 0`
-- Nếu \(|\Delta V| > 10\) m/s so với sample trước → set status error và set `WIND_SPEED`, `ACTIVE_POWER` = NaN
+- Nếu **V** < **V_cutin** − 1 hoặc **V** > **V_cutout** + 1 mà `ACTIVE_POWER > 0`
+- Nếu |**ΔV**| > 10 m/s so với sample trước → set status error và set `WIND_SPEED`, `ACTIVE_POWER` = NaN
 - Nếu trong tối thiểu 1 giờ (>= 6 điểm 10 phút) wind speed “đứng yên” → mark error
 
 ### 5.2 Bước B — Lọc outlier (DBSCAN)
@@ -297,11 +282,11 @@ Tạo bảng curve, rồi forward-fill/back-fill để không bị gap.
 
 ### 5.4 Bước D — “Healthy band” và phân lớp performance
 Trên dữ liệu, nội suy spline:
-- \(P_{theoretical}(V)\) = CubicSpline(center, median)
+- **P_theoretical(V)** = CubicSpline(center, median)
 
 Sau đó tìm biên dưới/trên theo sai lệch:
-- `lower_dev = P_theoretical - P_measured` (khi thiếu công suất)
-- `upper_dev = P_measured - P_theoretical` (khi dư công suất)
+- **lower_dev** = P_theoretical − P_measured (khi thiếu công suất)
+- **upper_dev** = P_measured − P_theoretical (khi dư công suất)
 
 Band được chọn bằng cách quét ngưỡng độ lệch theo step (10) đến max_band (1000) và chọn ngưỡng nơi “tốc độ tăng” số điểm mới trong band nhỏ hơn `stop_threshold=0.002`.
 
@@ -574,17 +559,15 @@ Nếu có đủ `HUMIDITY`, `TEMPERATURE`, `PRESSURE` thì dùng dữ liệu the
 
 Hàm `calculate_air_density(temp, pressure, humidity)` implement:
 
-\[
-\rho = \frac{1}{T}\left(\frac{p}{R_{air}} - h \cdot 0.0631846 \cdot T \cdot \left(\frac{1}{R_{air}} - \frac{1}{R_{vapor}}\right)\right)
-\]
+- **ρ** = (1/**T**) · [ **p**/**R_air** − **h** · 0,0631846 · **T** · (1/**R_air** − 1/**R_vapor**) ]
 
 **Ý nghĩa các đại lượng:**
-- \(T\): nhiệt độ tuyệt đối [K]. Dữ liệu °C được chuyển sang K trong `normalize.py` (nếu mean < 223).
-- \(p\): áp suất không khí tại hub height [Pa]. IEC yêu cầu hiệu chỉnh về hub height theo ISO 2533 nếu sensor không ở hub.
-- \(h\): độ ẩm tương đối dạng ratio (0..1). Nếu dữ liệu là % thì chia 100.
-- \(R_{air} = 287{,}05\) J/(kg·K) — hằng số khí của không khí khô (IEC ký hiệu \(R_0\)).
-- \(R_{vapor} = 461{,}5\) J/(kg·K) — hằng số khí của hơi nước (IEC ký hiệu \(R_w\)).
-- Số **0,0631846** xuất hiện trong biểu thức áp suất hơi nước. IEC 9.1.5 cho: \(P_w = 0{,}0000205 \exp(0{,}0631846 \cdot T_{10min})\) [Pa]. Trong code hiện tại dùng dạng tuyến tính \(h \cdot 0{,}0631846 \cdot T\) thay cho \(\Phi P_w\) (với \(\Phi\) là độ ẩm 0–100%); điều này gần đúng trong vùng nhiệt độ thường dùng nhưng khác với IEC ở dạng hàm.
+- **T**: nhiệt độ tuyệt đối [K]. Dữ liệu °C được chuyển sang K trong `normalize.py` (nếu mean < 223).
+- **p**: áp suất không khí tại hub height [Pa]. IEC yêu cầu hiệu chỉnh về hub height theo ISO 2533 nếu sensor không ở hub.
+- **h**: độ ẩm tương đối dạng ratio (0..1). Nếu dữ liệu là % thì chia 100.
+- **R_air** = 287,05 J/(kg·K) — hằng số khí của không khí khô (IEC ký hiệu R₀).
+- **R_vapor** = 461,5 J/(kg·K) — hằng số khí của hơi nước (IEC ký hiệu R_w).
+- Số **0,0631846** xuất hiện trong biểu thức áp suất hơi nước. IEC 9.1.5: **P_w** = 0,0000205·exp(0,0631846·T) [Pa]. Trong code hiện tại dùng dạng tuyến tính **h · 0,0631846 · T** thay cho **Φ·P_w** (với **Φ** là độ ẩm 0–100%); điều này gần đúng trong vùng nhiệt độ thường dùng nhưng khác với IEC ở dạng hàm.
 
 **Fallback:** `_header.py` định nghĩa `AIR_DENSITY = 1.225` kg/m³ (giá trị tiêu chuẩn ở điều kiện sea level, 15°C).
 
@@ -596,16 +579,10 @@ Hàm `calculate_air_density(temp, pressure, humidity)` implement:
 
 Áp dụng trên tập **NORMAL** (sau classification), trước khi binning/power curve:
 
-- **Normalize wind speed** (IEC Eq. 14):
-  \[
-  V_{norm} = V \cdot \left(\frac{\rho}{\rho_0}\right)^{1/3}, \quad \rho_0 = 1{,}225\;\text{kg/m}^3
-  \]
-  Lý do: công suất tỉ lệ với \(\rho V^3\) (động năng qua rotor); giữ \(P/\rho\) không đổi khi đổi \(\rho\) thì \(V\) tỉ lệ \(\rho^{-1/3}\).
+- **Normalize wind speed** (IEC Eq. 14): **V_norm** = **V** · (**ρ**/**ρ₀**)^(1/3), với **ρ₀** = 1,225 kg/m³.  
+  Lý do: công suất tỉ lệ với **ρ·V³** (động năng qua rotor); giữ **P/ρ** không đổi khi đổi **ρ** thì **V** tỉ lệ **ρ**^(−1/3).
 
-- **Normalize power** (IEC Eq. 13 cho stall; SmartWPA vẫn dùng để đưa P về điều kiện chuẩn):
-  \[
-  P_{norm} = P \cdot \frac{\rho_0}{\rho}
-  \]
+- **Normalize power** (IEC Eq. 13 cho stall; SmartWPA vẫn dùng để đưa P về điều kiện chuẩn): **P_norm** = **P** · (**ρ₀**/**ρ**).
 
 ---
 
@@ -626,11 +603,10 @@ Chia bin độ rộng **0,5 m/s** theo:
 **Nguồn:** IEC 61400-12-1:2022, Clause 9.2. Measured power curve xác định bằng “method of bins” trên dữ liệu đã chuẩn hóa: với mỗi bin \(i\), trung bình normalized wind speed và normalized power (IEC Eqs 15, 16).
 
 ### 9.1 Power curve “global”
-Trên data đã bin (sau khi normalize theo \(\rho\)):
+Trên data đã bin (sau khi normalize theo **ρ**):
 
-\[
-P_i = \frac{1}{N_i}\sum_{j \in \text{bin } i} P_{n,j}, \qquad V_i = \frac{1}{N_i}\sum_{j \in \text{bin } i} V_{n,j}
-\]
+- **P_i** = (1/**N_i**) Σ (trong bin i) P_{n,j}
+- **V_i** = (1/**N_i**) Σ (trong bin i) V_{n,j}
 
 Trong pipeline chính, input của power curve là **data NORMAL** nên thực tế curve global là curve của NORMAL. Code dùng mean power theo bin (tương đương IEC).
 
@@ -649,10 +625,7 @@ Ngoài “global”, code xuất thêm:
 - Nội suy tuyến tính theo time cho `WIND_SPEED`, `ACTIVE_POWER` (pandas `interpolate(method='time')`)
 - Fit mô hình Logistic 5 tham số trên tập `status == NORMAL`
 
-Hàm 5PL:
-\[
-f(x)=D+\frac{A-D}{(1+(x/C)^B)^E}
-\]
+Hàm 5PL: **f(x)** = **D** + (**A**−**D**) / (1 + (x/**C**)^**B**)^**E**
 
 Ước lượng tham số bằng `scipy.optimize.curve_fit`, rồi dự báo:
 - `ESTIMATED_POWER = f(WIND_SPEED)`
@@ -662,76 +635,53 @@ f(x)=D+\frac{A-D}{(1+(x/C)^B)^E}
 ## 11) Energy-based KPIs & thống kê (module `indicators.py`)
 
 Ký hiệu:
-- \(P_i\): `ACTIVE_POWER` tại sample i  
-- \(\hat{P}_i\): `ESTIMATED_POWER` tại sample i  
-- \(\Delta t\): time step (giờ) = `resolution / 1 hour`
+- **P_i**: `ACTIVE_POWER` tại sample i
+- **P̂_i**: `ESTIMATED_POWER` tại sample i
+- **Δt**: time step (giờ) = resolution / 1 hour
 
 ### 11.1 Average wind speed
-\[
-\text{AverageWindSpeed} = \operatorname{mean}(V_i)
-\]
+- **AverageWindSpeed** = mean(V_i)
 
 ### 11.2 ReachableEnergy / RealEnergy
-\[
-E_{reachable} = \sum_i \hat{P}_i \cdot \Delta t
-\]
-\[
-E_{real} = \sum_i P_i \cdot \Delta t
-\]
+- **E_reachable** = Σ_i **P̂_i** · **Δt**
+- **E_real** = Σ_i **P_i** · **Δt**
 
 ### 11.3 LossEnergy / LossPercent
-\[
-E_{loss} = \max(0, E_{reachable} - E_{real})
-\]
-\[
-\text{LossPercent} =
-\begin{cases}
-\frac{E_{loss}}{E_{reachable}}, & E_{reachable} > 0 \\
-0, & \text{ngược lại}
-\end{cases}
-\]
+- **E_loss** = max(0, **E_reachable** − **E_real**)
+- **LossPercent** = **E_loss** / **E_reachable** nếu E_reachable > 0; bằng 0 nếu ngược lại
 
 ### 11.4 DailyProduction
 Group theo ngày (freq `'D'`):
-\[
-E_{day} = \sum_{i \in day} P_i \cdot \Delta t
-\]
+- **E_day** = Σ (i ∈ ngày) **P_i** · **Δt**  
+
 Output là list record `{date, DailyProduction}`.
 
 ### 11.5 Tba (Time-based availability, theo code)
 Theo code:
-- \(R\) = số samples thuộc một trong: `NORMAL`, `CURTAILMENT`, `PARTIAL_CURTAILMENT`, `OVERPRODUCTION`, `UNDERPRODUCTION`
-- \(U\) = số samples thuộc: `STOP`, `PARTIAL_STOP`
+- **R** = số samples thuộc một trong: `NORMAL`, `CURTAILMENT`, `PARTIAL_CURTAILMENT`, `OVERPRODUCTION`, `UNDERPRODUCTION`
+- **U** = số samples thuộc: `STOP`, `PARTIAL_STOP`
 
-\[
-\text{Tba} = \frac{R}{R+U}
-\]
+- **Tba** = **R** / (**R** + **U**)
 
 ### 11.6 Pba (Production-based availability, theo code)
 Loại `MEASUREMENT_ERROR`:
-\[
-\text{Pba} = \frac{\sum P_i}{\sum \hat{P}_i}
-\]
-với \(i\) trên subset `status != MEASUREMENT_ERROR`.
+- **Pba** = (Σ **P_i**) / (Σ **P̂_i**), với i trên subset `status != MEASUREMENT_ERROR`.
 
 ### 11.7 Loss theo từng trạng thái
-Với mỗi trạng thái S trong:
-`STOP`, `PARTIAL_STOP`, `UNDERPRODUCTION`, `CURTAILMENT`, `PARTIAL_CURTAILMENT`:
+Với mỗi trạng thái **S** trong: `STOP`, `PARTIAL_STOP`, `UNDERPRODUCTION`, `CURTAILMENT`, `PARTIAL_CURTAILMENT`:
 
-\[
-\text{Loss}_S = \max\left(0,\sum_{i \in S}(\hat{P}_i - P_i)\cdot \Delta t\right)
-\]
+- **Loss_S** = max(0, Σ_{i∈S} (**P̂_i** − **P_i**) · **Δt**)
 
 ### 11.8 Thống kê counts & durations (theo code)
 - `TotalStopPoints` = số điểm `status == STOP` (từ `classified`)
 - Tương tự cho `PARTIAL_STOP`, `UNDERPRODUCTION`, `CURTAILMENT`
-- `TimeStep` = \(\Delta t\) theo giây
+- `TimeStep` = **Δt** theo giây
 - `TotalDuration` = (max timestamp - min timestamp) theo giây
 
 ### 11.9 Yaw error histogram (nếu đủ cột)
 `yaw_error.yaw_errors()`:
-- \(\Delta = \theta_{nacelle} - \theta_{wind}\)
-- Normalize về \([-180,180)\)
+- **Δ** = θ_nacelle − θ_wind
+- Normalize về [−180, 180)
 - Histogram theo bin 10° (mặc định)
 - Trả mean/median/std của \(\Delta\)
 
@@ -753,28 +703,19 @@ Quy tắc quan trọng theo code:
 - Nếu dataset kết thúc khi vẫn DOWN, event đóng tại timestamp cuối dataset.
 
 ### 12.3 Công thức MTTR / MTTF / MTBF
-Giả sử có \(N\) events (FailureCount = N), và mỗi event \(k\) có downtime \(D_k\) (giây):
+Giả sử có **N** events (FailureCount = N), và mỗi event k có downtime **D_k** (giây):
 
-\[
-\text{TotalDownTime} = \sum_{k=1}^{N} D_k
-\]
-
-Khi \(N>0\):
-\[
-\text{MTTR} = \frac{\text{TotalDownTime}}{N}
-\]
-\[
-\text{MTTF} = \frac{t_1 + t_2 + ... + t_N}{N}
-\]
-\[
-\text{MTBF} = \text{MTTF} + \text{MTTR}
-\]
+- **TotalDownTime** = Σ(k=1→N) **D_k**
+- Khi **N** > 0:
+  - **MTTR** = **TotalDownTime** / **N**
+  - **MTTF** = (t₁ + t₂ + … + t_N) / **N**
+  - **MTBF** = **MTTF** + **MTTR**
 
 Trong đó (theo paper Duer et al., 2023 và code hiện tại):
-- \(t_1\) = UP time từ **dataset start** đến **failure đầu tiên**
-- \(t_2\) = UP time từ **sau failure 1** đến **failure 2**
+- **t₁** = UP time từ **dataset start** đến **failure đầu tiên**
+- **t₂** = UP time từ **sau failure 1** đến **failure 2**
 - ...
-- \(t_N\) = UP time từ **sau failure (N-1)** đến **failure N**
+- **t_N** = UP time từ **sau failure (N−1)** đến **failure N**
 
 **Quan trọng**: code **KHÔNG** tính UP time **sau failure cuối cùng** vào MTTF (đúng theo định nghĩa “time to failure”).
 
@@ -809,10 +750,8 @@ Fit phân phối Weibull cho `WIND_SPEED` (trên tập NORMAL) bằng:
 - `shape` (k)
 - `scale` (λ)
 
-Hàm CDF Weibull:
-\[
-F(v)=1-\exp\left(-\left(\frac{v}{\lambda}\right)^k\right)
-\]
+Hàm CDF Weibull:  
+**F(v)** = 1 − exp(−(v/λ)^k)
 
 ---
 
@@ -821,21 +760,18 @@ F(v)=1-\exp\left(-\left(\frac{v}{\lambda}\right)^k\right)
 **Nguồn:** IEC 61400-12-1:2022, Clause 9.3. AEP tính bằng cách áp dụng measured power curve lên phân phối tần suất tốc độ gió tham chiếu. IEC dùng Rayleigh làm phân phối tham chiếu (Weibull với shape factor 2); AEP tính cho các giá trị annual average wind speed 4, 5, …, 11 m/s (IEC Eq. 17, 18). Có thể thay Rayleigh bằng Weibull với shape/scale từ site (IEC Eq. 19).
 
 Input:
-- Power curve “global” theo bin: \(P(v_i)\)
-- Weibull params: (shape k, scale λ) từ fit trên tập NORMAL.
+- Power curve “global” theo bin: **P(v_i)**
+- Weibull params: (shape **k**, scale **λ**) từ fit trên tập NORMAL.
 
-### 14.1 Rayleigh CDF theo mean wind speed \(v_{avg}\) (IEC Eq. 18)
-\[
-F(V) = 1 - \exp\left(-\frac{\pi}{4}\left(\frac{V}{V_{ave}}\right)^2\right)
-\]
-với \(V_{ave}\) = annual average wind speed tại hub height. Đây là Rayleigh (Weibull k=2); IEC quy định dùng phân phối này làm tham chiếu.
+### 14.1 Rayleigh CDF theo mean wind speed (IEC Eq. 18)
+- **F(V)** = 1 − exp(−(π/4)(**V**/**V_ave**)²)
+
+với **V_ave** = annual average wind speed tại hub height. Đây là Rayleigh (Weibull k=2); IEC quy định dùng phân phối này làm tham chiếu.
 
 ### 14.2 Tích phân AEP theo trapz trên bins (IEC Eq. 17)
-\(N_h = 8760\) h/năm. Khởi tạo: \(V_{i-1} = V_i - 0{,}5\) m/s, \(P_{i-1} = 0\) kW cho bin đầu.
+**N_h** = 8760 h/năm. Khởi tạo: **V_{i−1}** = **V_i** − 0,5 m/s, **P_{i−1}** = 0 kW cho bin đầu.
 
-\[
-\text{AEP} = N_h \sum_{i=1}^{N} \bigl[ F(V_i) - F(V_{i-1}) \bigr] \frac{P_{i-1} + P_i}{2}
-\]
+- **AEP** = **N_h** · Σ_{i=1..N} [ **F(V_i)** − **F(V_{i−1})** ] · (**P_{i−1}** + **P_i**)/2  
 
 Code xuất:
 - `AepRayleighMeasured{ave}` với `ave` từ 4..11 (tương ứng \(V_{ave}\) 4–11 m/s).
@@ -847,27 +783,21 @@ Nếu power curve không phủ tới cut-out, IEC quy định: zero power dướ
 - Tính lại AEP → `AepRayleighExtrapolated{ave}`
 
 ### 14.4 AEP theo Weibull turbine (IEC Eq. 19)
-Thay \(F\) bằng CDF Weibull:
-\[
-F_W(V) = 1 - \exp\left(-\left(\frac{V}{A_w}\right)^k\right)
-\]
-với \(A_w\) = scale (λ trong code), \(k\) = shape. Output: `AepWeibullTurbine`.
+Thay **F** bằng CDF Weibull: **F_W(V)** = 1 − exp(−(**V**/**A_w**)^**k**), với **A_w** = scale (λ trong code), **k** = shape. Output: `AepWeibullTurbine`.
 
 ---
 
 ## 15) Capacity factor (module `capacity_factor.py`) — theo implementation
 
-Trên data đã bin, với \(A = Swept\_area\):
-\[
-\text{CapacityFactor}(bin) = \frac{\overline{P}_{bin}}{0.6125 \cdot A \cdot \overline{V}_{bin}}
-\]
+Trên data đã bin, với **A** = Swept_area:
+- **CapacityFactor(bin)** = **P̄_bin** / (0,6125 · **A** · **V̄_bin**)
 
 Trong đó:
-- \(\overline{P}_{bin} = mean(ACTIVE\_POWER)\) trong bin
-- \(\overline{V}_{bin} = mean(WIND\_SPEED)\) trong bin
-- Hằng số 0.6125 = \(0.5 \cdot 1.225\)
+- **P̄_bin** = mean(ACTIVE_POWER) trong bin
+- **V̄_bin** = mean(WIND_SPEED) trong bin
+- Hằng số **0,6125** = 0,5 · 1,225
 
-Lưu ý: đây là **đúng theo code hiện tại** (không phải công thức chuẩn “power in wind” \(0.5\rho A V^3\)).
+Lưu ý: đây là **đúng theo code hiện tại** (không phải công thức chuẩn “power in wind” 0,5·**ρ**·**A**·**V**³).
 
 ---
 
@@ -893,7 +823,7 @@ Trong hệ thống có 3 dạng timestamp:
 
 Quy ước:
 - API nhận/trả **milliseconds**
-- `save_computation_results()` sẽ convert nếu `get_wpa()` trả seconds (nhỏ hơn \(1e12\))
+- `save_computation_results()` sẽ convert nếu `get_wpa()` trả seconds (nhỏ hơn 1e12)
 
 Checklist khi thêm API mới:
 - Tránh mix `ms` và `s` trong cùng payload
@@ -959,7 +889,7 @@ Rule chính (tóm tắt):
 - `WIND_SPEED < 0` → `MEASUREMENT_ERROR`
 - Ngoài range hợp lý (wind speed/power) → `MEASUREMENT_ERROR`
 - Nếu `WIND_SPEED` hoặc `ACTIVE_POWER` là NaN → `MEASUREMENT_ERROR`
-- Nếu \(|\Delta V| > 10\) m/s so với sample trước: mark error và set `WIND_SPEED`, `ACTIVE_POWER` = NaN
+- Nếu |**ΔV**| > 10 m/s so với sample trước: mark error và set `WIND_SPEED`, `ACTIVE_POWER` = NaN
 - Nếu wind speed “đứng yên” trong tối thiểu 1 giờ → mark error
 
 Vì sao:
@@ -988,7 +918,7 @@ Vì sao:
 #### A.3.4 Bước D — healthy band & phân lớp performance
 
 Nội suy spline:
-- \(P_{theoretical}(V)\) = CubicSpline(center, median)
+- **P_theoretical(V)** = CubicSpline(center, median)
 
 Chọn band dưới/trên bằng cách quét threshold “độ lệch” (step 10 đến max 1000) và dừng khi tốc độ tăng điểm mới trong band < `stop_threshold`.
 
@@ -1037,7 +967,7 @@ Tài liệu tham chiếu: **IEC 61400-12-1:2022** (Edition 3.0) — *Wind energy
 
 | Hạng mục | IEC 61400-12-1:2022 | SmartWPA (code) | Đánh giá |
 |----------|---------------------|------------------|----------|
-| **Air density** | Eq. (12): ρ từ T, B, Φ; R₀=287,05, R_w=461,5; P_w = 0,0000205 exp(0,0631846·T) | `density.py`: cùng R_air, R_vapor; phần hơi nước dùng \(h \cdot 0{,}0631846 \cdot T\) thay cho Φ·P_w | **Gần đúng:** Công thức khí ẩm tương đương; dạng hơi nước đơn giản hóa so với IEC (IEC dùng exp). Nên ghi chú trong tài liệu và cân nhắc dùng P_w theo IEC nếu cần đồng bộ chặt. |
+| **Air density** | Eq. (12): **ρ** từ **T**, **B**, **Φ**; **R₀**=287,05, **R_w**=461,5; **P_w** = 0,0000205·exp(0,0631846·**T**) | `density.py`: cùng **R_air**, **R_vapor**; phần hơi nước dùng **h·0,0631846·T** thay cho **Φ·P_w** | **Gần đúng:** Công thức khí ẩm tương đương; dạng hơi nước đơn giản hóa so với IEC (IEC dùng exp). Nên ghi chú trong tài liệu và cân nhắc dùng P_w theo IEC nếu cần đồng bộ chặt. |
 | **Chuẩn hóa theo ρ** | Eq. (13) P_n = P·(ρ₀/ρ); Eq. (14) V_n = V·(ρ/ρ₀)^(1/3) | `normalize.py`: V_n = V·(ρ/1,225)^(1/3), P_n = P·(1,225/ρ) | **Đúng:** Khớp IEC 9.1.5 cho active power control (normalize wind speed) và tỉ lệ power. |
 | **Method of bins** | 8.5, 9.2: bin 0,5 m/s, tâm bội số 0,5; mean V và P theo bin | `bins.py` + `curve_est.py`: bin 0,5 m/s, edges 0,25–0,75–…; mean theo bin | **Đúng:** Khớp IEC. |
 | **Power curve** | Eqs (15), (16): V_i, P_i = mean trong bin i | Global curve = mean(P) theo bin trên data NORMAL | **Đúng:** Cùng phương pháp. IEC không bắt buộc lọc “chỉ NORMAL”; SmartWPA dùng NORMAL để curve đại diện cho vận hành “khỏe”. |
@@ -1054,7 +984,7 @@ Tài liệu tham chiếu: **IEC 61400-12-1:2022** (Edition 3.0) — *Wind energy
 1. **Wind shear / REWS (9.1.3):** IEC có rotor equivalent wind speed (REWS) và wind shear correction. SmartWPA hiện chỉ dùng hub height wind speed → đúng với “option 4” trong IEC Table 1 (met mast at hub height, chỉ air density normalization); nếu triển khai REWS sẽ giảm uncertainty cho turbine lớn.
 2. **Wind veer (9.1.4), turbulence normalization (9.1.6, Annex M):** Chưa implement; IEC khuyến nghị khi cần so sánh power curve giữa site/điều kiện.
 3. **Uncertainty (Annex D, E):** IEC yêu cầu báo cáo uncertainty của power curve và AEP. SmartWPA chưa tính/ghi uncertainty theo từng nguồn IEC.
-4. **Air density – vapour pressure:** Dùng dạng đơn giản \(h \cdot 0{,}0631846 \cdot T\) thay vì \(\Phi \cdot P_w\) với \(P_w = 0{,}0000205 \exp(0{,}0631846 \cdot T)\); có thể chỉnh lại nếu cần khớp chặt IEC.
+4. **Air density – vapour pressure:** Dùng dạng đơn giản **h·0,0631846·T** thay vì **Φ·P_w** với **P_w** = 0,0000205·exp(0,0631846·**T**); có thể chỉnh lại nếu cần khớp chặt IEC.
 
 ### B.4 Kết luận
 

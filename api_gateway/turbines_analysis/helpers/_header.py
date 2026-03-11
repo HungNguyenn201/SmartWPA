@@ -219,6 +219,11 @@ CROSS_ANALYSIS_SOURCE_GROUP_BINS_DEFAULT = 5
 CROSS_ANALYSIS_SOURCE_GROUP_BINS_MIN = 2
 CROSS_ANALYSIS_SOURCE_GROUP_BINS_MAX = 20
 
+# Default number of bins for curve output (binned X → mean/median Y per group)
+CROSS_ANALYSIS_CURVE_BINS_DEFAULT = 50
+CROSS_ANALYSIS_CURVE_BINS_MIN = 10
+CROSS_ANALYSIS_CURVE_BINS_MAX = 200
+
 # ============================================================================
 # Monthly Dashboard Configuration
 # ============================================================================
