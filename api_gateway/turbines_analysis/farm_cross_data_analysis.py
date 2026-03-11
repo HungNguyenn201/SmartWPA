@@ -179,7 +179,7 @@ def _run_farm_pipeline(
 
     is_wind_rose = x_source == "wind_direction"
     wind_rose = None
-    points: List[Dict[str, Any]] = []
+    series: List[Dict[str, Any]] = []
 
     if is_wind_rose:
         sectors_number_rose = sectors_number or CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT
@@ -199,20 +199,79 @@ def _run_farm_pipeline(
                 bt["turbine_name"] = turbine_names.get(bt["turbine_id"], f"WT{bt['turbine_id']}")
             wind_rose["by_turbine"] = by_turbine_list
     else:
-        points = x_helpers.compute_binned_curve_points(
-            df,
-            x_col="x",
-            y_col="y",
-            group_col="group" if group_series is not None else None,
-            turbine_id_col="turbine_id" if "turbine_id" in df.columns else None,
-            n_bins=CROSS_ANALYSIS_CURVE_BINS_DEFAULT,
-        )
+        # Return curve-like data per turbine (power-curve style).
+        turbine_names = {t.id: t.name for t in turbines}
+        turb_ids = sorted([int(x) for x in df["turbine_id"].dropna().unique().tolist()]) if "turbine_id" in df.columns else []
+        points_returned_total = 0
+
+        for tid in turb_ids:
+            sub = df[df["turbine_id"] == tid]
+            if sub.empty:
+                continue
+
+            turbine_obj: Dict[str, Any] = {
+                "turbine_id": tid,
+                "turbine_name": turbine_names.get(tid, f"WT{tid}"),
+            }
+
+            # group_by=none (and group_by=turbine): group must be null on points.
+            # Note: we already return `series` per turbine, so group_by=turbine is redundant.
+            if params["group_by"] in ("none", "turbine") or group_series is None or "group" not in sub.columns:
+                binned = x_helpers.compute_binned_curve_points(
+                    sub,
+                    x_col="x",
+                    y_col="y",
+                    group_col=None,
+                    turbine_id_col=None,
+                    n_bins=CROSS_ANALYSIS_CURVE_BINS_DEFAULT,
+                )
+                pts: List[Dict[str, Any]] = []
+                for p in binned:
+                    pts.append({
+                        "X": p.get("x"),
+                        "Y": p.get("y"),
+                        "y_median": p.get("y_median"),
+                        "count": p.get("count"),
+                        "group": None,
+                    })
+                per_points = len(pts)
+                points_returned_total += per_points
+                turbine_obj["points"] = pts
+            else:
+                # group_by != none: return nested points_by_group under each turbine.
+                binned = x_helpers.compute_binned_curve_points(
+                    sub,
+                    x_col="x",
+                    y_col="y",
+                    group_col="group",
+                    turbine_id_col=None,
+                    n_bins=CROSS_ANALYSIS_CURVE_BINS_DEFAULT,
+                )
+                by_group: Dict[str, List[Dict[str, Any]]] = {}
+                for p in binned:
+                    g = p.get("group")
+                    g = "UNKNOWN" if g is None else str(g)
+                    by_group.setdefault(g, []).append({
+                        "X": p.get("x"),
+                        "Y": p.get("y"),
+                        "y_median": p.get("y_median"),
+                        "count": p.get("count"),
+                        "group": g,
+                    })
+                for g in by_group.keys():
+                    by_group[g].sort(key=lambda q: float(q.get("X") or 0.0))
+                per_points = sum(len(v) for v in by_group.values())
+                points_returned_total += per_points
+                turbine_obj["points_by_group"] = by_group
+
+            turbine_obj["points_returned"] = per_points
+            series.append(turbine_obj)
 
     turbine_id_list = [t.id for t in turbines]
     summary = {
         "rows_before_filters": before_count,
         "rows_after_filters": after_count,
-        "points_returned": len(points),
+        "points_returned": 0 if is_wind_rose else int(points_returned_total),
         "turbines_requested": turbine_id_list,
         "turbine_count": len(turbine_id_list),
     }
@@ -225,8 +284,10 @@ def _run_farm_pipeline(
         "group_by": group_by,
         "period": {"start_time_ms": start_ms, "end_time_ms": end_ms},
         "summary": summary,
-        "points": points,
+        "points": [],
     }
+    if series:
+        result["series"] = series
     if wind_rose is not None:
         result["wind_rose"] = wind_rose
     if statistics is not None:

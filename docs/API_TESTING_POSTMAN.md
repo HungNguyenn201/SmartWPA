@@ -2255,12 +2255,16 @@ Cross turbine analysis cấp farm (manual 1.3.5.3 b): so sánh X/Y nhiều turbi
 **Response (200):** Farm cross-data **không trả regression**; **luôn** trả dạng **binned points** hoặc **wind_rose**. Không có tham số `output`/`curve_bins` trong request.
 
 - Khi **X ≠ wind_direction**:
-  - `data.points`: danh sách **điểm theo bin** (power-curve style), mỗi phần tử gồm: `{ x, y, y_median, count, group, turbine_id? }`.
-    - `x`: đại diện X của bin (mean X trong bin)
-    - `y`: đại diện Y (mean Y trong bin)
-    - `y_median`: median Y trong bin (để FE chọn vẽ mean/median)
-    - `count`: số điểm raw trong bin
-  - `data.summary.points_returned`: số điểm binned trả về.
+  - `data.series`: list theo turbine (giống `power_curve`), mỗi phần tử:
+    - `{ turbine_id, turbine_name, points }` khi `group_by` = `none` hoặc `turbine`
+    - `{ turbine_id, turbine_name, points_by_group }` khi `group_by` ≠ `none/turbine`
+  - `points` là danh sách điểm theo bin (power-curve style), mỗi phần tử: `{ X, Y, y_median, count, group }`
+    - **X**: đại diện X của bin (mean X trong bin)
+    - **Y**: đại diện Y (mean Y trong bin)
+    - **y_median**: median Y trong bin (để FE chọn vẽ mean/median)
+    - **count**: số điểm raw trong bin
+    - **group**: `null` khi `group_by=none` hoặc `group_by=turbine`; là nhãn nhóm khi group_by khác
+  - `data.summary.points_returned`: tổng số điểm binned của tất cả turbine (tổng độ dài các list points).
 - Khi **X = wind_direction**:
   - `data.wind_rose` = `{ sectors_number, direction_source, sectors: [...], by_turbine?: [...] }`
   - `data.points` rỗng.
@@ -2280,10 +2284,10 @@ Cross turbine analysis cấp farm (manual 1.3.5.3 b): so sánh X/Y nhiều turbi
 
 **Response (200) — TH Farm 1:** Trả **points (binned)** để FE vẽ curve.
 
-- `data.points`: danh sách các điểm theo bin; mỗi điểm có `x`, `y`, `y_median`, `count`, `group` (tên turbine), `turbine_id`.
-- `data.summary.points_returned`: số điểm binned trả về.
+- `data.series`: mảng theo turbine; mỗi turbine có `points` là danh sách các điểm theo bin.
+- `data.summary.points_returned`: tổng số điểm binned trả về.
 
-> **Kiểm tra:** FE vẽ mỗi turbine/series bằng cách nối (x, y) hoặc (x, y_median) của các điểm cùng `group` (và `turbine_id`).
+> **Kiểm tra:** FE vẽ mỗi turbine/series bằng cách nối (X, Y) hoặc (X, y_median) theo thứ tự X trong `data.series[i].points`. Khi `group_by=turbine` hoặc `none`, `group` trong mỗi point là `null`.
 
 ---
 
