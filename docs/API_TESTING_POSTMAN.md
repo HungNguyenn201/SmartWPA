@@ -2252,7 +2252,18 @@ Cross turbine analysis cấp farm (manual 1.3.5.3 b): so sánh X/Y nhiều turbi
 
 **`filters.day_night`:** Thống nhất với turbine: chỉ `"day"` \| `"night"` \| `""`.
 
-**Response (200):** Farm cross-data **không trả regression**; **luôn** trả dạng curve (binned) hoặc wind_rose, không có tham số `output` trong request. Khi **X ≠ wind_direction**: `data.curve_series` = mảng series, mỗi phần tử = { **group**, **turbine_id**? (nếu group_by=turbine), **bins**: [ { x_center, y_mean, y_median, count } ] } (số bin mặc định 50); `data.points` = []; `summary.curve_series_count` = số series. Khi **X = wind_direction**: `data.wind_rose` = { sectors_number, direction_source, sectors: [...], by_turbine?: [...] }; `points` rỗng.
+**Response (200):** Farm cross-data **không trả regression**; **luôn** trả dạng **binned points** hoặc **wind_rose**. Không có tham số `output`/`curve_bins` trong request.
+
+- Khi **X ≠ wind_direction**:
+  - `data.points`: danh sách **điểm theo bin** (power-curve style), mỗi phần tử gồm: `{ x, y, y_median, count, group, turbine_id? }`.
+    - `x`: đại diện X của bin (mean X trong bin)
+    - `y`: đại diện Y (mean Y trong bin)
+    - `y_median`: median Y trong bin (để FE chọn vẽ mean/median)
+    - `count`: số điểm raw trong bin
+  - `data.summary.points_returned`: số điểm binned trả về.
+- Khi **X = wind_direction**:
+  - `data.wind_rose` = `{ sectors_number, direction_source, sectors: [...], by_turbine?: [...] }`
+  - `data.points` rỗng.
 
 #### TH Farm 1: Curve nhiều turbine (group_by=turbine)
 
@@ -2267,13 +2278,12 @@ Cross turbine analysis cấp farm (manual 1.3.5.3 b): so sánh X/Y nhiều turbi
 }
 ```
 
-**Response (200) — TH Farm 1:** Trả **curve_series** (binned), không trả `points`.
+**Response (200) — TH Farm 1:** Trả **points (binned)** để FE vẽ curve.
 
-- `data.curve_series`: mảng các object { **group** (tên turbine, vd "WT1"), **turbine_id**, **bins**: [ { **x_center**, **y_mean**, **y_median**, **count** }, … ] }.
-- `data.points`: [].
-- `data.summary.curve_series_count`: số series (vd 2 khi 2 turbine).
+- `data.points`: danh sách các điểm theo bin; mỗi điểm có `x`, `y`, `y_median`, `count`, `group` (tên turbine), `turbine_id`.
+- `data.summary.points_returned`: số điểm binned trả về.
 
-> **Kiểm tra:** Mỗi phần tử trong `data.curve_series` có `group`, `turbine_id`, `bins` (mảng bin theo trục X). FE vẽ đường bằng cách nối (x_center, y_mean) hoặc (x_center, y_median). Không có `wind_rose` khi X ≠ wind_direction.
+> **Kiểm tra:** FE vẽ mỗi turbine/series bằng cách nối (x, y) hoặc (x, y_median) của các điểm cùng `group` (và `turbine_id`).
 
 ---
 

@@ -750,7 +750,7 @@ def downsample_to_max_points(df: pd.DataFrame, max_points: int) -> pd.DataFrame:
     return df.iloc[idx]
 
 
-def compute_binned_curve_series(
+def compute_binned_curve_points(
     df: pd.DataFrame,
     x_col: str = "x",
     y_col: str = "y",
@@ -759,8 +759,16 @@ def compute_binned_curve_series(
     n_bins: int = 50,
 ) -> List[Dict[str, Any]]:
     """
-    Bin X and aggregate Y per (group, turbine_id). Returns one series per group/turbine
-    with bins: [{ x_center, y_mean, y_median, count }, ...] for curve-style chart.
+    Bin X and aggregate Y per (group, turbine_id). Returns a *flat* list of points
+    (power-curve style) so the API can use `points` consistently.
+
+    Each output point:
+      - x: representative X of bin (mean of X values in the bin)
+      - y: representative Y (mean of Y in the bin)
+      - y_median: median of Y in the bin (optional for FE choice)
+      - count: number of raw points in the bin
+      - group: label (if group_col given)
+      - turbine_id: turbine id (if turbine_id_col given)
     """
     from api_gateway.turbines_analysis.helpers._header import (
         CROSS_ANALYSIS_CURVE_BINS_MIN,
@@ -818,20 +826,20 @@ def compute_binned_curve_series(
             y_median=("_y", "median"),
             count=("_y", "count"),
         )
-        bins_list = []
+        label = key_to_label.get(key_label, key_label)
         for _, row in agg.iterrows():
-            bins_list.append({
-                "x_center": float(row["x_center"]),
-                "y_mean": float(row["y_mean"]),
+            d: Dict[str, Any] = {
+                "timestamp_ms": None,
+                "x": float(row["x_center"]),
+                "y": float(row["y_mean"]),
                 "y_median": float(row["y_median"]),
                 "count": int(row["count"]),
-            })
-        bins_list.sort(key=lambda b: b["x_center"])
-        label = key_to_label.get(key_label, key_label)
-        item: Dict[str, Any] = {"group": label, "bins": bins_list}
-        if turbine_id_col and tid is not None:
-            item["turbine_id"] = int(tid)
-        out.append(item)
+                "group": label,
+            }
+            if turbine_id_col and tid is not None:
+                d["turbine_id"] = int(tid)
+            out.append(d)
+    out.sort(key=lambda p: (str(p.get("group") or ""), int(p.get("turbine_id") or -1), float(p.get("x") or 0.0)))
     return out
 
 
@@ -851,8 +859,9 @@ def build_points_list(
     cols = [c for c in cols if c in df.columns]
     out: List[Dict[str, Any]] = []
     for r in df[cols].itertuples(index=False):
+        ts = getattr(r, "timestamp_ms", None)
         d: Dict[str, Any] = {
-            "timestamp_ms": int(r.timestamp_ms),
+            "timestamp_ms": None if ts is None or (isinstance(ts, float) and np.isnan(ts)) else int(ts),
             "x": float(r.x),
             "y": float(r.y),
             "group": None if not need_group else (None if pd.isna(getattr(r, group_col)) else str(getattr(r, group_col))),

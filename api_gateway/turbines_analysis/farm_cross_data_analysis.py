@@ -180,7 +180,6 @@ def _run_farm_pipeline(
     is_wind_rose = x_source == "wind_direction"
     wind_rose = None
     points: List[Dict[str, Any]] = []
-    curve_series: List[Dict[str, Any]] = []
 
     if is_wind_rose:
         sectors_number_rose = sectors_number or CROSS_ANALYSIS_SECTORS_NUMBER_DEFAULT
@@ -200,7 +199,7 @@ def _run_farm_pipeline(
                 bt["turbine_name"] = turbine_names.get(bt["turbine_id"], f"WT{bt['turbine_id']}")
             wind_rose["by_turbine"] = by_turbine_list
     else:
-        curve_series = x_helpers.compute_binned_curve_series(
+        points = x_helpers.compute_binned_curve_points(
             df,
             x_col="x",
             y_col="y",
@@ -228,9 +227,6 @@ def _run_farm_pipeline(
         "summary": summary,
         "points": points,
     }
-    if curve_series:
-        result["curve_series"] = curve_series
-        result["summary"]["curve_series_count"] = len(curve_series)
     if wind_rose is not None:
         result["wind_rose"] = wind_rose
     if statistics is not None:
