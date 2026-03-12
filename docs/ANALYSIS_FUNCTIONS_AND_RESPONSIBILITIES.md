@@ -23,6 +23,7 @@ Tài liệu này mô tả **chức năng analysis** trong SmartWPA: mục đích
 |----------|--------|-----------------|---------------|---------------|--------|
 | `/api/turbines/{id}/computation/` | POST | Chạy pipeline WPA: classification, power curve, weibull, indicators, (yaw_error). Persist kết quả. | `start_time`, `end_time`, `data_source`, `constants` | Raw SCADA (DB/file) | 1.3.5.4.7 |
 | `/api/turbines/{id}/classification-rate/` | GET | Tỷ lệ % theo từng trạng thái phân loại. | `start_time`, `end_time` | `computation_type='classification'` | – |
+| `/api/turbines/{id}/classification-rate/monthly/` | GET | Tỷ lệ phân loại theo từng tháng (Normal/Stop/Others). | `start_time`, `end_time`, `include_errors` | ClassificationPoint (aggregate theo tháng) | 1.3.6.2.1 |
 | `/api/turbines/{id}/distribution/` | GET | Phân bố tần suất theo bin (wind_speed hoặc power). | `source_type`, `bin_width`, `bin_count`, `mode`, `time_type`, `start_time`, `end_time` | ClassificationPoint (hoặc raw) | 1.3.6.2.6 |
 | `/api/turbines/{id}/indicators/` | GET | KPI: Real/Reachable/Loss energy, TBA, PBA, MTBF, MTTF, MTTR, capacity factor, AEP. | `start_time`, `end_time` | `computation_type='indicators'` | 1.3.6.1 |
 | `/api/turbines/{id}/wind-speed-analysis/` | GET | Phân bố tốc độ gió, Weibull A/K, Speed rose (3 mức), Power rose. | `bin_width`, `threshold1`, `threshold2`, `sectors_number`, `mode`, `time_type`, `start_time`, `end_time` | ClassificationPoint + FactoryHistorical | 1.3.6.2.5 |
@@ -63,6 +64,7 @@ flowchart TD
   POST --> I[indicators]
   POST --> Y[yaw_error optional]
   C --> CR[classification-rate]
+  C --> MCR[classification-rate/monthly]
   C --> D[distribution]
   C --> SA[speed_analysis]
   C --> ST[static_table]
@@ -97,6 +99,7 @@ flowchart TD
 ### 4.2 Classification và distribution
 
 - **classification-rate:** Trả về tỷ lệ % theo từng `status_code` từ `ClassificationSummary` (Normal, Stop, Curtailment, Under production, …). Dùng cho pie chart hoặc bảng tổng hợp.
+- **classification-rate/monthly/:** Trả về tỷ lệ phân loại **theo từng tháng** (aggregate từ ClassificationPoint): mỗi tháng có `groups` (Normal, Stop, Others) với count và percentage, dùng cho biểu đồ cột xếp chồng (manual 1.3.6.2.1 Monthly classification). Tham số `start_time`, `end_time` tùy chọn (mặc định dùng khoảng của computation mới nhất).
 - **distribution:** Phân bố tần suất theo bin cho `wind_speed` hoặc `power`; mode global hoặc time (monthly, day_night, seasonally). Dữ liệu từ ClassificationPoint (hoặc raw nếu không dùng only_computation_data).
 
 ### 4.3 Power curve và Weibull

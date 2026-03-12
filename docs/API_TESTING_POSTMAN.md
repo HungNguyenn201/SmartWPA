@@ -14,6 +14,7 @@ Tài liệu này hướng dẫn test **từng API** của SmartWPA backend bằn
 - [3. Computation (Chạy tính toán)](#3-computation-chạy-tính-toán)
 - [4. Turbine-level Analysis APIs](#4-turbine-level-analysis-apis)
   - [4.1 Classification Rate](#41-classification-rate)
+  - [4.1.1 Monthly Classification Rate](#411-monthly-classification-rate)
   - [4.2 Indicators (Turbine)](#42-indicators-turbine)
   - [4.3 Power Curve (Line + Scatter)](#43-power-curve-line--scatter)
   - [4.4 Weibull (Turbine)](#44-weibull-turbine)
@@ -525,6 +526,98 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/classification-rate/?start_time={{s
   }
 }
 ```
+
+---
+
+### 4.1.1 Monthly Classification Rate
+
+Tỷ lệ phân loại **theo từng tháng** (manual 1.3.6.2.1 Monthly classification), dùng cho biểu đồ cột xếp chồng (Normal / Stop / Others theo tháng).
+
+| | |
+|---|---|
+| **Method** | GET |
+| **URL** | `{{base_url}}/api/turbines/{{turbine_id}}/classification-rate/monthly/` |
+
+**Tham số (Query):**
+
+| Param | Type | Bắt buộc | Default | Mô tả |
+|-------|------|----------|---------|-------|
+| `start_time` | int (ms) | Không | Theo computation | Lọc points trong khoảng; nếu bỏ qua thì dùng `computation.start_time` |
+| `end_time` | int (ms) | Không | Theo computation | Lọc points trong khoảng; nếu bỏ qua thì dùng `computation.end_time` |
+| `include_errors` | string | Không | (exclude) | `1` = tính cả MEASUREMENT_ERROR vào mẫu số; mặc định loại trừ |
+
+#### TH1: Không tham số (lấy theo computation mới nhất)
+
+```
+GET {{base_url}}/api/turbines/{{turbine_id}}/classification-rate/monthly/
+```
+
+#### TH2: Chỉ định time range
+
+```
+GET {{base_url}}/api/turbines/{{turbine_id}}/classification-rate/monthly/?start_time={{start_time_ms}}&end_time={{end_time_ms}}
+```
+
+#### TH3: Bao gồm MEASUREMENT_ERROR trong tỷ lệ
+
+```
+GET {{base_url}}/api/turbines/{{turbine_id}}/classification-rate/monthly/?include_errors=1
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "turbine_id": 1,
+    "turbine_name": "WT1",
+    "farm_name": "Farm A",
+    "start_time": 1325376000000,
+    "end_time": 1356998400000,
+    "computation_start_time": 1325376000000,
+    "computation_end_time": 1356998400000,
+    "classification_map": {
+      "0": "NORMAL",
+      "1": "STOP",
+      "2": "PARTIAL_STOP",
+      "3": "CURTAILMENT",
+      "4": "PARTIAL_CURTAILMENT",
+      "5": "UNDERPRODUCTION",
+      "6": "OVERPRODUCTION"
+    },
+    "include_errors": false,
+    "monthly_classification": [
+      {
+        "month_start_ms": 1325376000000,
+        "total_points": 4320,
+        "counts_by_status_code": { "0": 4200, "1": 80, "2": 20, "5": 20 },
+        "rates_by_status_code": { "0": 97.22, "1": 1.85, "2": 0.46, "5": 0.46 },
+        "groups": {
+          "Normal": { "count": 4200, "percentage": 97.22 },
+          "Stop": { "count": 80, "percentage": 1.85 },
+          "Others": { "count": 40, "percentage": 0.93 }
+        }
+      },
+      {
+        "month_start_ms": 1328054400000,
+        "total_points": 4176,
+        "counts_by_status_code": { "0": 4080, "1": 60, "5": 36 },
+        "rates_by_status_code": { "0": 97.70, "1": 1.44, "5": 0.86 },
+        "groups": {
+          "Normal": { "count": 4080, "percentage": 97.70 },
+          "Stop": { "count": 60, "percentage": 1.44 },
+          "Others": { "count": 36, "percentage": 0.86 }
+        }
+      }
+    ]
+  }
+}
+```
+
+- `month_start_ms`: đầu tháng (epoch ms UTC) cho cột đó.
+- `groups`: gộp Normal / Stop / Others (count + percentage) để vẽ stacked bar.
+- `counts_by_status_code` / `rates_by_status_code`: chi tiết theo từng status nếu cần.
 
 ---
 
@@ -3129,6 +3222,7 @@ Trong repo đã có sẵn template collection + environment tại:
 3) Computation → Chạy computation
 4) Analysis (Turbine):
    → Classification Rate
+   → Monthly Classification Rate
    → Indicators
    → Power Curve (global → time, scatter points)
    → Weibull
