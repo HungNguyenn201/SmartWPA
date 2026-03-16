@@ -90,7 +90,20 @@ def indicators(classified: pd.DataFrame, constants: dict) -> dict:
     obj['DurationWithoutError'] = obj['TotalDuration'] - obj['TimeStep'] * len(classified[stop_mask])
     
     if 'DIRECTION_WIND' in estimated_data.columns and 'DIRECTION_NACELLE' in estimated_data.columns:
-        obj['YawLag'] = yaw_errors(estimated_data)
+        only_computed_states = constants.get('yaw_only_computed_states')  # e.g. ['NORMAL'] or None = all points
+        obj['YawLag'] = yaw_errors(
+            estimated_data,
+            bin_width=constants.get('yaw_bin_width', 10),
+            v_cutin=constants.get('V_cutin'),
+            v_cutout=constants.get('V_cutout'),
+            only_computed_states=only_computed_states,
+            use_precomputed_yaw_column=constants.get('yaw_precomputed_column'),
+            months=constants.get('yaw_months'),
+            day_night=constants.get('yaw_day_night'),
+            direction_sector_deg=constants.get('yaw_direction_sector_deg'),
+            direction_sectors=constants.get('yaw_direction_sectors'),
+            source_filters=constants.get('yaw_source_filters'),
+        )
 
     obj['UpPeriodsCount'] = R
     obj['DownPeriodsCount'] = U

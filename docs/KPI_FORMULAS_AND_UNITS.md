@@ -166,7 +166,12 @@ Nguồn: `analytics/computation/yaw_error.py`
 
 ### 5.2 YawLag.statistics
 - `mean_error`, `median_error`, `std_error`
+- **Alias (manual):** `yaw_misalignment` = mean_error, `yaw_lag` = std_error (yaw standard deviation)
 - **Đơn vị**: degrees
+
+### 5.3 Nguồn dữ liệu yaw (tùy chọn)
+- **Mặc định:** Tính từ `DIRECTION_NACELLE` và `DIRECTION_WIND`: \(\Delta = \theta_{nacelle} - \theta_{wind}\).
+- **Cột yaw có sẵn:** Nếu SCADA có cột `YAW_ERROR` / `YawError` / `yaw_error` (hoặc tên truyền qua `yaw_precomputed_column` trong constants), dùng trực tiếp cột đó (degrees) thay vì tính từ hai cột direction.
 
 **Vì sao dùng**:
 - Yaw misalignment là nguyên nhân quan trọng gây loss/underperformance.

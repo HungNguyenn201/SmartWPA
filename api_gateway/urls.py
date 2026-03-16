@@ -52,7 +52,7 @@ from api_gateway.turbines_analysis.time_profile import TimeProfileAPIView
 from api_gateway.turbines_analysis.weibull import TurbineWeibullAPIView, FarmWeibullAPIView
 from api_gateway.turbines_analysis.power_curve import TurbinePowerCurveAPIView, FarmPowerCurveAPIView
 from api_gateway.turbines_analysis.computation import ComputationAPIView
-from api_gateway.turbines_analysis.yaw_error import TurbineYawErrorAPIView
+from api_gateway.turbines_analysis.yaw_error import TurbineYawErrorAPIView, FarmYawErrorAPIView
 from api_gateway.turbines_analysis.timeseries import TurbineTimeseriesAPIView
 from api_gateway.turbines_analysis.working_period import TurbineWorkingPeriodAPIView
 from api_gateway.turbines_analysis.failure_charts import (
@@ -137,6 +137,7 @@ urlpatterns = [
     path('api/farms/<int:farm_id>/indicators/', FarmIndicatorAPIView.as_view(), name='farm-indicators'),
     path('api/farms/<int:farm_id>/weibull/', FarmWeibullAPIView.as_view(), name='farm-weibull'),
     path('api/farms/<int:farm_id>/power-curve/', FarmPowerCurveAPIView.as_view(), name='farm-power-curve'),
+    path('api/farms/<int:farm_id>/yaw-error/', FarmYawErrorAPIView.as_view(), name='farm-yaw-error'),
     path('api/farms/<int:farm_id>/cross-data-analysis/', FarmCrossDataAnalysisAPIView.as_view(), name='farm-cross-data-analysis'),
     # Failure charts (split into 2 APIs for FE simplicity)
     path('api/farms/<int:farm_id>/failure-indicators/', FarmFailureIndicatorsChartAPIView.as_view(), name='farm-failure-indicators'),

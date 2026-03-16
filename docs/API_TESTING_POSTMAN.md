@@ -883,6 +883,10 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/weibull/?start_time={{start_time_ms
 
 ### 4.5 Yaw Error
 
+Tương ứng manual MUP WPA **1.3.5.3 d (Yaw analysis)**. API trả histogram góc yaw error và thống kê (mean, median, std); dữ liệu phải đã được tính qua **POST computation** (có cột `DIRECTION_NACELLE`, `DIRECTION_WIND` hoặc cột yaw có sẵn).
+
+#### 4.5.1 Turbine-level: GET yaw-error
+
 | | |
 |---|---|
 | **Method** | GET |
@@ -890,16 +894,42 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/weibull/?start_time={{start_time_ms
 
 **Tham số (Query):**
 
-| Param | Type | Bắt buộc | Default |
-|-------|------|----------|---------|
-| `start_time` | int (ms) | Không | Latest computation |
-| `end_time` | int (ms) | Không | Latest computation |
+| Param | Type | Bắt buộc | Default | Mô tả |
+|-------|------|----------|---------|-------|
+| `start_time` | int (epoch ms) | Không | Latest computation | Đầu khoảng thời gian computation |
+| `end_time` | int (epoch ms) | Không | Latest computation | Cuối khoảng thời gian computation |
+
+**Lưu ý:** `start_time` và `end_time` phải đi cùng nhau; nếu truyền một trong hai sẽ bị bỏ qua và dùng latest computation.
+
+---
+
+#### TH1: Lấy yaw error theo computation mới nhất (không truyền time)
+
+Dùng khi đã chạy computation cho turbine và muốn xem kết quả yaw của lần chạy gần nhất.
 
 ```
 GET {{base_url}}/api/turbines/{{turbine_id}}/yaw-error/
 ```
 
-**Response (200):**
+**Kỳ vọng:** 200, `data` chứa histogram và statistics của computation có `is_latest=True` cho turbine đó.
+
+---
+
+#### TH2: Lấy yaw error theo khoảng thời gian computation cụ thể
+
+Dùng khi có nhiều lần computation (nhiều period) và cần xem yaw của một period xác định.
+
+```
+GET {{base_url}}/api/turbines/{{turbine_id}}/yaw-error/?start_time={{start_time_ms}}&end_time={{end_time_ms}}
+```
+
+**Ví dụ:** `start_time=1325376000000`, `end_time=1356998400000` (1 Jan 2012 – 1 Jan 2013).
+
+**Kỳ vọng:** 200 nếu tồn tại Computation với `computation_type='yaw_error'`, `start_time`/`end_time` khớp; 404 `NO_YAW_ERROR` nếu không có computation cho period đó.
+
+---
+
+#### Response (200) – Turbine-level
 
 ```json
 {
@@ -912,21 +942,149 @@ GET {{base_url}}/api/turbines/{{turbine_id}}/yaw-error/
     "start_time": 1325376000000,
     "end_time": 1356998400000,
     "data": [
-      {"X": 0.0, "Y": -2.5},
-      {"X": 10.0, "Y": -1.8},
-      {"X": 20.0, "Y": -0.5},
-      {"X": 350.0, "Y": -3.1}
+      {"X": -20.0, "Y": 150},
+      {"X": -10.0, "Y": 420},
+      {"X": 0.0, "Y": 3100},
+      {"X": 10.0, "Y": 380}
     ],
     "statistics": {
       "mean_error": -1.52,
       "median_error": -1.30,
-      "std_error": 2.15
+      "std_error": 2.15,
+      "yaw_misalignment": -1.52,
+      "yaw_lag": 2.15
     }
   }
 }
 ```
 
-> `X` = wind direction bin (degrees), `Y` = mean yaw error (degrees).
+**Ý nghĩa trường:**
+
+| Trường | Ý nghĩa |
+|--------|---------|
+| `data` (mảng) | Histogram: mỗi phần tử `{ "X", "Y" }` — **X** = góc yaw error (degrees, left edge của bin), **Y** = số điểm (frequency) rơi vào bin đó. Bin mặc định 10°. |
+| `statistics.mean_error` | Trung bình yaw error (degrees). |
+| `statistics.median_error` | Trung vị yaw error (degrees). |
+| `statistics.std_error` | Độ lệch chuẩn yaw error (degrees). |
+| `statistics.yaw_misalignment` | Alias của `mean_error` (theo manual: mean yaw = yaw misalignment). |
+| `statistics.yaw_lag` | Alias của `std_error` (theo manual: yaw standard deviation = yaw lag). |
+
+Công thức yaw error: **Δ = θ_nacelle − θ_wind**, chuẩn hóa về **[−180°, 180°)**.
+
+---
+
+#### Test case lỗi – Turbine-level
+
+| Case | Request | Kỳ vọng |
+|------|---------|---------|
+| Thiếu turbine_id | `GET {{base_url}}/api/turbines//yaw-error/` hoặc không có `turbine_id` trong path | 400, `MISSING_PARAMETERS` hoặc 404 |
+| Turbine không tồn tại | `GET {{base_url}}/api/turbines/99999/yaw-error/` (id không có trong DB) | 404, `TURBINE_NOT_FOUND` |
+| Chưa chạy computation / không có yaw | Turbine chưa có Computation `type=yaw_error` hoặc không có dữ liệu direction | 404, `NO_YAW_ERROR` hoặc `NO_YAW_ERROR_DATA` / `NO_YAW_ERROR_STATS` |
+| start_time hoặc end_time không hợp lệ | `?start_time=abc` hoặc `?end_time=xyz` | 400, `INVALID_PARAMETERS` (message: start_time and end_time must be integers) |
+| Truyền chỉ một trong start_time/end_time | `?start_time=1325376000000` (thiếu end_time) | Backend có thể bỏ qua và dùng latest; nên truyền đủ cả hai khi muốn filter theo period. |
+
+---
+
+#### 4.5.2 Farm-level: GET yaw-error (manual 1.3.5.3 d)
+
+So sánh yaw error của **nhiều turbine** trong cùng một farm. Dữ liệu đọc từ Computation yaw_error đã lưu theo từng turbine.
+
+| | |
+|---|---|
+| **Method** | GET |
+| **URL** | `{{base_url}}/api/farms/{{farm_id}}/yaw-error/` |
+
+**Tham số (Query):**
+
+| Param | Type | Bắt buộc | Default | Mô tả |
+|-------|------|----------|---------|-------|
+| `start_time` | int (epoch ms) | Không | Latest per turbine | Lọc computation theo đầu period |
+| `end_time` | int (epoch ms) | Không | Latest per turbine | Lọc computation theo cuối period |
+
+---
+
+#### TH1: Yaw error toàn farm – computation mới nhất mỗi turbine
+
+```
+GET {{base_url}}/api/farms/{{farm_id}}/yaw-error/
+```
+
+**Kỳ vọng:** 200, `turbines` là mảng yaw error của từng turbine có computation yaw (mỗi turbine một bản ghi “latest”).
+
+---
+
+#### TH2: Yaw error toàn farm – theo một khoảng thời gian
+
+```
+GET {{base_url}}/api/farms/{{farm_id}}/yaw-error/?start_time={{start_time_ms}}&end_time={{end_time_ms}}
+```
+
+**Kỳ vọng:** 200 nếu ít nhất một turbine có Computation yaw_error trùng `start_time`/`end_time`; các turbine không có computation cho period đó sẽ không xuất hiện trong `turbines`. 404 `NO_YAW_ERROR` nếu không có turbine nào có dữ liệu.
+
+---
+
+#### Response (200) – Farm-level
+
+```json
+{
+  "success": true,
+  "data": {
+    "farm_id": 1,
+    "farm_name": "Farm A",
+    "start_time": 1325376000000,
+    "end_time": 1356998400000,
+    "turbines": [
+      {
+        "turbine_id": 1,
+        "turbine_name": "WT1",
+        "start_time": 1325376000000,
+        "end_time": 1356998400000,
+        "data": [
+          {"X": -20.0, "Y": 150},
+          {"X": -10.0, "Y": 420},
+          {"X": 0.0, "Y": 3100},
+          {"X": 10.0, "Y": 380}
+        ],
+        "statistics": {
+          "mean_error": -1.52,
+          "median_error": -1.30,
+          "std_error": 2.15,
+          "yaw_misalignment": -1.52,
+          "yaw_lag": 2.15
+        }
+      },
+      {
+        "turbine_id": 2,
+        "turbine_name": "WT2",
+        "start_time": 1325376000000,
+        "end_time": 1356998400000,
+        "data": [ {"X": -10.0, "Y": 200}, {"X": 0.0, "Y": 2800} ],
+        "statistics": {
+          "mean_error": -0.8,
+          "median_error": -0.5,
+          "std_error": 1.9,
+          "yaw_misalignment": -0.8,
+          "yaw_lag": 1.9
+        }
+      }
+    ]
+  }
+}
+```
+
+**Ý nghĩa:** `start_time`/`end_time` ở ngoài là khoảng thời gian đại diện (ví dụ min start / max end của các computation trả về). Mỗi phần tử trong `turbines` có cấu trúc giống response turbine-level (histogram `data` + `statistics` kèm alias).
+
+---
+
+#### Test case lỗi – Farm-level
+
+| Case | Request | Kỳ vọng |
+|------|---------|---------|
+| Thiếu farm_id | Path không có farm_id hoặc `GET .../farms//yaw-error/` | 400, `MISSING_PARAMETERS` hoặc 404 |
+| Farm không tồn tại | `GET {{base_url}}/api/farms/99999/yaw-error/` | 404, `FARM_NOT_FOUND` |
+| Farm không có turbine | Farm tồn tại nhưng không có turbine nào | 404, `NO_TURBINES` |
+| Không có turbine nào có yaw computation | Tất cả turbine thiếu Computation yaw_error hoặc không khớp period | 404, `NO_YAW_ERROR` |
+| start_time/end_time không integer | `?start_time=abc&end_time=xyz` | 400, `INVALID_PARAMETERS` |
 
 ---
 

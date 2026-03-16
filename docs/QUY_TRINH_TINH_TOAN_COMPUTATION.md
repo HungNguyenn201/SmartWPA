@@ -680,10 +680,17 @@ Với mỗi trạng thái **S** trong: `STOP`, `PARTIAL_STOP`, `UNDERPRODUCTION`
 
 ### 11.9 Yaw error histogram (nếu đủ cột)
 `yaw_error.yaw_errors()`:
-- **Δ** = θ_nacelle − θ_wind
+- **Δ** = θ_nacelle − θ_wind (hoặc dùng cột yaw có sẵn nếu có)
 - Normalize về [−180, 180)
-- Histogram theo bin 10° (mặc định)
-- Trả mean/median/std của \(\Delta\)
+- Histogram theo bin 10° (mặc định; có thể truyền qua constants `yaw_bin_width`: 5, 10, 15)
+- Lọc theo **cut-in/cut-out** (V_cutin, V_cutout từ constants) khi có cột WIND_SPEED
+- Trả mean/median/std của \(\Delta\); API trả thêm alias `yaw_misalignment` = mean, `yaw_lag` = std
+
+**Constants tùy chọn (khi gọi computation):**
+- `yaw_bin_width`: 5 | 10 | 15 (bước histogram, độ)
+- `yaw_only_computed_states`: list trạng thái classification để giữ (vd. `['NORMAL']`); `None` = dùng mọi điểm
+- `yaw_precomputed_column`: tên cột SCADA chứa yaw error sẵn (degrees)
+- `yaw_months`, `yaw_day_night` ('day'|'night'), `yaw_direction_sector_deg`, `yaw_direction_sectors`, `yaw_source_filters`: advanced filters (manual)
 
 ---
 
