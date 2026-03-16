@@ -70,13 +70,23 @@ class ComputationAPIView(APIView):
             )
             
             if df is None or df.empty:
-                error_msg = f"No data found for turbine {turbine_id} in time range [{start_time}, {end_time}]"
+                detail = f"No data found for turbine {turbine_id} in time range [{start_time}, {end_time}]"
                 if error_info:
                     sources = '; '.join(f"{k.capitalize()}: {v}" for k, v in error_info.items())
-                    error_msg += f". Tried: {sources}" if len(error_info) > 1 else f". {sources}"
-                
-                logger.error(f"Data loading failed for turbine {turbine_id}: {error_msg}")
-                return error_response(error_msg, "NO_DATA_FOUND", status.HTTP_404_NOT_FOUND)
+                    detail += f". Tried: {sources}" if len(error_info) > 1 else f". {sources}"
+                logger.warning(f"No data in range for turbine {turbine_id}: {detail}")
+                return success_response(
+                    {
+                        "turbine_id": turbine_id,
+                        "turbine_name": turbine.name,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "no_data": True,
+                        "message": detail,
+                        "tried_sources": error_info or {},
+                    },
+                    message="No data found for this turbine in the specified time range. Computation skipped.",
+                )
             
             if len(df) < 6:
                 return error_response("Insufficient data points. Need at least 6 data points (1 hour minimum)", "INSUFFICIENT_DATA", status.HTTP_400_BAD_REQUEST)
